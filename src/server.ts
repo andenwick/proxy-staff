@@ -11,6 +11,7 @@ import { triggerRoutes } from './routes/triggers.js';
 import { webhookTriggerRoute } from './routes/webhooks/trigger.js';
 import { eventsRoute } from './routes/events.js';
 import { outlookRoutes } from './routes/outlook.js';
+import { adminRoutes } from './routes/admin.js';
 import { shutdownServices, getImprovementScheduler, getTriggerEvaluator, getWebhookAdapter } from './services/index.js';
 import { getPrismaClient } from './services/prisma.js';
 
@@ -55,6 +56,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await server.register(webhookTriggerRoute);
   await server.register(eventsRoute);
   await server.register(outlookRoutes);
+  await server.register(adminRoutes);
 
   // Ready hook for logging and service injection
   server.addHook('onReady', async () => {
