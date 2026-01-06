@@ -76,8 +76,7 @@ function loadTenantEnv(): Record<string, string> {
   return tenantEnv;
 }
 
-// Load tenant env once at startup
-const tenantEnv = loadTenantEnv();
+// Note: tenantEnv is loaded fresh on each tool call to pick up credential changes
 
 /**
  * Load tool manifest from tenant folder
@@ -123,12 +122,15 @@ function executePythonScript(
       return;
     }
 
+    // Reload tenant env on each call to pick up credential changes
+    const freshEnv = loadTenantEnv();
+
     const proc = spawn('python', [fullPath], {
       cwd: TENANT_FOLDER,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        ...tenantEnv,  // Tenant-specific env from .env file
+        ...freshEnv,  // Tenant-specific env from .env file (reloaded fresh)
         TENANT_FOLDER,
       },
     });
