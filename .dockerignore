@@ -29,8 +29,12 @@ logs/
 .env.local
 .env.example
 
-# Tenant data (should be mounted as volume)
-tenants/
+# Tenant data - include static files, exclude secrets and runtime data
+tenants/*/.env
+tenants/*/life/
+tenants/*/state/
+tenants/*/history/
+tenants/*/.claude/
 
 # Development/IDE files
 .vscode/
