@@ -1,0 +1,497 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model conversationSession {
+  id               String     @id @default(uuid())
+  tenant_id        String
+  sender_phone     String
+  started_at       DateTime   @default(now())
+  ended_at         DateTime?
+  // Session management columns
+  reset_timestamp  DateTime?
+  lease_owner      String?
+  lease_expires_at DateTime?
+  tenant           Tenant     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  messages         messages[]
+
+  @@map("conversation_sessions")
+  @@index([tenant_id, sender_phone, ended_at])
+  @@index([tenant_id, sender_phone])
+  @@index([lease_expires_at])
+}
+
+model messages {
+  id                    String                   @id
+  tenant_id             String
+  whatsapp_message_id   String                   @unique
+  direction             MessageDirection
+  content               String
+  media_type            String?
+  media_url             String?
+  delivery_status       DeliveryStatus
+  interpreted_intent    Json?
+  workflow_execution_id String?
+  created_at            DateTime                 @default(now())
+  sender_phone          String
+  session_id            String
+  search_vector         Unsupported("tsvector")?
+  conversationSession   conversationSession      @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  tenant                Tenant                   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  workflow_executions   workflow_executions?     @relation(fields: [workflow_execution_id], references: [id])
+
+  @@index([created_at])
+  @@index([session_id])
+  @@index([tenant_id, created_at])
+  @@index([tenant_id])
+  @@index([tenant_id, sender_phone, created_at])
+}
+
+model scheduled_tasks {
+  id               String    @id
+  tenant_id        String
+  user_phone       String
+  task_prompt      String
+  cron_expr        String?
+  run_at           DateTime?
+  timezone         String    @default("America/Denver")
+  enabled          Boolean   @default(true)
+  is_one_time      Boolean
+  error_count      Int       @default(0)
+  last_run_at      DateTime?
+  next_run_at      DateTime
+  created_at       DateTime  @default(now())
+  updated_at       DateTime
+  task_type        String    @default("reminder")
+  execution_plan   Json?
+  lease_owner      String?
+  lease_expires_at DateTime?
+  tenant           Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([lease_expires_at])
+  @@index([next_run_at, enabled])
+  @@index([tenant_id])
+  @@index([tenant_id, user_phone])
+}
+
+model tenant_configs {
+  id                   String   @id
+  tenant_id            String   @unique
+  system_prompt        String
+  max_history_messages Int      @default(20)
+  created_at           DateTime @default(now())
+  updated_at           DateTime
+  tenant               Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+}
+
+model tenant_credentials {
+  id              String   @id
+  tenant_id       String
+  service_name    String
+  encrypted_value String
+  created_at      DateTime @default(now())
+  updated_at      DateTime
+  tenant          Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, service_name])
+}
+
+model tenant_workflows {
+  id                  String                @id
+  tenant_id           String
+  name                String
+  description         String
+  n8n_workflow_id     String
+  n8n_webhook_url     String
+  is_active           Boolean               @default(true)
+  created_at          DateTime              @default(now())
+  updated_at          DateTime
+  tenant              Tenant                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  workflow_executions workflow_executions[]
+}
+
+model Tenant {
+  id                       String                  @id
+  name                     String
+  phone_number             String                  @unique
+  messaging_channel        MessagingChannel        @default(WHATSAPP)
+  whatsapp_phone_number_id String?
+  telegram_chat_id         String?                 @unique
+  telegram_linked_at       DateTime?
+  status                   TenantStatus            @default(TRIAL)
+  onboarding_status        OnboardingStatus        @default(DISCOVERY)
+  created_at               DateTime                @default(now())
+  updated_at               DateTime
+  conversationSession      conversationSession[]
+  messages                 messages[]
+  scheduled_tasks          scheduled_tasks[]
+  tenant_configs           tenant_configs?
+  tenant_credentials       tenant_credentials[]
+  tenant_workflows         tenant_workflows[]
+  workflow_executions      workflow_executions[]
+  // Self-annealing system relations
+  tool_executions          tool_executions[]
+  feedback_signals         feedback_signals[]
+  improvement_logs         improvement_logs[]
+  performance_baselines    performance_baselines?
+  // Workflow trigger system relations
+  triggers                 triggers[]
+  trigger_executions       trigger_executions[]
+  // Session management relations
+  session_end_jobs         session_end_jobs[]
+  browser_sessions         browser_sessions[]
+  // Async task queue relations
+  async_jobs               async_jobs[]
+
+  @@map("tenants")
+}
+
+model workflow_executions {
+  id                    String                  @id
+  tenant_id             String
+  workflow_id           String
+  triggering_message_id String?
+  status                WorkflowExecutionStatus
+  input_payload         Json
+  output_payload        Json?
+  error_details         Json?
+  started_at            DateTime                @default(now())
+  completed_at          DateTime?
+  messages              messages[]
+  tenant                Tenant                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  tenant_workflows      tenant_workflows        @relation(fields: [workflow_id], references: [id])
+
+  @@index([status])
+  @@index([tenant_id])
+}
+
+enum DeliveryStatus {
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum OnboardingStatus {
+  DISCOVERY
+  BUILDING
+  LIVE
+  PAUSED
+}
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  CHURNED
+}
+
+enum MessagingChannel {
+  WHATSAPP
+  TELEGRAM
+}
+
+enum WorkflowExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// ==========================================
+// Self-Annealing System Tables
+// ==========================================
+
+model tool_executions {
+  id               String    @id @default(uuid())
+  tenant_id        String
+  session_id       String?
+  tool_name        String
+  tool_type        String    // 'tenant' | 'shared'
+  input_payload    Json
+  output_payload   Json?
+  status           ToolExecutionStatus @default(PENDING)
+  duration_ms      Int?
+  error_message    String?
+  directive_used   String?
+  started_at       DateTime  @default(now())
+  completed_at     DateTime?
+  tenant           Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@index([tenant_id, started_at])
+  @@index([tool_name, status])
+}
+
+model feedback_signals {
+  id                 String      @id @default(uuid())
+  tenant_id          String
+  session_id         String
+  signal_type        SignalType
+  signal_data        Json
+  severity           String      @default("info") // 'info' | 'warning' | 'error' | 'critical'
+  tool_execution_id  String?
+  processed          Boolean     @default(false)
+  improvement_id     String?
+  created_at         DateTime    @default(now())
+  tenant             Tenant      @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  improvement_logs   improvement_logs? @relation(fields: [improvement_id], references: [id])
+
+  @@index([tenant_id])
+  @@index([tenant_id, signal_type])
+  @@index([processed])
+}
+
+model improvement_logs {
+  id                  String    @id @default(uuid())
+  tenant_id           String
+  trigger_type        String    // 'pattern_analysis' | 'user_feedback' | 'manual'
+  trigger_signals     String[]  // IDs of feedback_signals that triggered this
+  analysis_summary    String
+  pattern_identified  String
+  action_type         String    // 'directive_update' | 'tool_config' | 'none'
+  action_details      Json
+  before_state        String?
+  after_state         String?
+  verification_status String    @default("pending") // 'pending' | 'verified' | 'degraded' | 'rolled_back'
+  verified_at         DateTime?
+  rolled_back         Boolean   @default(false)
+  rolled_back_at      DateTime?
+  created_at          DateTime  @default(now())
+  tenant              Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  feedback_signals    feedback_signals[]
+
+  @@index([tenant_id])
+  @@index([tenant_id, created_at])
+  @@index([verification_status])
+}
+
+model performance_baselines {
+  id                      String    @id @default(uuid())
+  tenant_id               String    @unique
+  tool_success_rate       Float     @default(1.0)
+  user_satisfaction_score Float     @default(1.0)
+  tool_metrics            Json      @default("{}")  // Per-tool breakdown
+  success_rate_threshold  Float     @default(0.8)
+  satisfaction_threshold  Float     @default(0.7)
+  updated_at              DateTime  @updatedAt
+  created_at              DateTime  @default(now())
+  tenant                  Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+}
+
+enum ToolExecutionStatus {
+  PENDING
+  SUCCESS
+  FAILURE
+  TIMEOUT
+}
+
+enum SignalType {
+  TOOL_FAILURE
+  USER_CORRECTION
+  USER_COMPLAINT
+  RETRY_NEEDED
+  GUARD_TRIGGERED
+}
+
+// ==========================================
+// Workflow Trigger System Tables
+// ==========================================
+
+model triggers {
+  id                String          @id @default(uuid())
+  tenant_id         String
+  user_phone        String
+  name              String
+  description       String?
+  trigger_type      TriggerType
+  config            Json            // Type-specific config
+  task_prompt       String          // What Claude should do
+  autonomy          AutonomyLevel   @default(NOTIFY)
+  status            TriggerStatus   @default(ACTIVE)
+
+  // Rate limiting & error handling
+  cooldown_seconds  Int             @default(0)
+  error_count       Int             @default(0)
+  max_errors        Int             @default(3)
+
+  // Webhook-specific
+  webhook_path      String?         @unique
+  webhook_secret    String?         // Encrypted
+
+  // Execution state
+  last_triggered_at DateTime?
+  next_check_at     DateTime?
+  execution_state   Json?           // previousOutputs for recurring
+
+  // Distributed locking
+  lease_owner       String?
+  lease_expires_at  DateTime?
+
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+
+  tenant            Tenant          @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  trigger_executions trigger_executions[]
+
+  @@index([tenant_id])
+  @@index([status, next_check_at])
+  @@index([trigger_type, status])
+}
+
+model trigger_executions {
+  id                    String                  @id @default(uuid())
+  trigger_id            String
+  tenant_id             String
+  status                TriggerExecutionStatus
+  triggered_by          String?                 // "webhook", "schedule", "condition:check"
+  input_context         Json?
+  output                String?
+  error_message         String?
+
+  // Confirmation flow
+  confirmation_status   ConfirmationStatus?
+  confirmation_deadline DateTime?
+  confirmed_by          String?
+  confirmed_at          DateTime?
+
+  started_at            DateTime                @default(now())
+  completed_at          DateTime?
+  duration_ms           Int?
+
+  triggers              triggers                @relation(fields: [trigger_id], references: [id], onDelete: Cascade)
+  tenant                Tenant                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([trigger_id, started_at])
+  @@index([confirmation_status, confirmation_deadline])
+  @@index([tenant_id])
+}
+
+enum TriggerType {
+  TIME
+  EVENT
+  CONDITION
+  WEBHOOK
+}
+
+enum AutonomyLevel {
+  NOTIFY
+  CONFIRM
+  AUTO
+}
+
+enum TriggerStatus {
+  ACTIVE
+  PAUSED
+  DISABLED
+  ERROR
+}
+
+enum TriggerExecutionStatus {
+  PENDING
+  AWAITING_CONFIRMATION
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  TIMEOUT
+}
+
+enum ConfirmationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+// ==========================================
+// Session Management System Tables
+// ==========================================
+
+// Background job queue for session-end learning triggers
+model session_end_jobs {
+  id            String              @id @default(uuid())
+  session_id    String
+  tenant_id     String
+  status        SessionEndJobStatus @default(PENDING)
+  attempts      Int                 @default(0)
+  max_attempts  Int                 @default(3)
+  created_at    DateTime            @default(now())
+  processed_at  DateTime?
+  error_message String?
+  tenant        Tenant              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([status, created_at])
+  @@index([tenant_id])
+}
+
+// Browser session metadata persistence
+model browser_sessions {
+  id               String    @id
+  tenant_id        String
+  session_id       String
+  persistent       Boolean   @default(false)
+  created_at       DateTime  @default(now())
+  last_used_at     DateTime  @default(now())
+  lease_owner      String?
+  lease_expires_at DateTime?
+  tenant           Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@index([lease_expires_at])
+  @@index([tenant_id, session_id])
+}
+
+enum SessionEndJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ==========================================
+// Async Task Queue Tables
+// ==========================================
+
+// Background job queue for long-running CLI tasks
+model async_jobs {
+  id               String         @id @default(uuid())
+  tenant_id        String
+  sender_phone     String
+  session_id       String
+  job_type         String         @default("cli_task")
+  status           AsyncJobStatus @default(PENDING)
+  input_message    String
+  output_result    String?
+  error_message    String?
+  estimated_ms     Int?
+  dedup_hash       String?
+  created_at       DateTime       @default(now())
+  started_at       DateTime?
+  completed_at     DateTime?
+  cancelled_at     DateTime?
+  progress_updates Int            @default(0)
+  tenant           Tenant         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, status])
+  @@index([sender_phone, status])
+  @@index([dedup_hash])
+  @@index([created_at])
+}
+
+enum AsyncJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  INTERRUPTED
+}

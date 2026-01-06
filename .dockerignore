@@ -1,0 +1,76 @@
+# Dependencies - will be installed fresh in container
+node_modules/
+
+# Git repository
+.git/
+.gitignore
+
+# Documentation files
+*.md
+README.md
+AGENTS.md
+CODEBASE_REVIEW.md
+
+# Test files and coverage
+tests/
+coverage/
+*.test.ts
+*.spec.ts
+jest.config.js
+tsconfig.jest.json
+
+# Log files
+*.log
+logs/
+
+# Environment files (secrets should be passed via env vars)
+.env
+.env.*
+.env.local
+.env.example
+
+# Tenant data (should be mounted as volume)
+tenants/
+
+# Development/IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts (we build in container)
+dist/
+
+# Claude/Serena config
+.claude/
+.serena/
+agent-os/
+
+# Scripts that aren't needed at runtime
+scripts/
+
+# Task tracking
+tasks/
+
+# Temporary files
+nul
+*.tmp
+*.temp
+
+# Docker files (prevent recursive copies)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Debug files
+*.map
+
+# Misc development files
+eslint.config.mjs
+# prisma.config.ts - needed for migrations
+cancel_pipiads*.js

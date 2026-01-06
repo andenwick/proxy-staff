@@ -1,0 +1,19 @@
+{
+  "tools": [
+    {
+      "name": "example_tool",
+      "description": "An example tool that echoes input. Replace with your own tools.",
+      "script": "example_tool.py",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The message to echo"
+          }
+        },
+        "required": ["message"]
+      }
+    }
+  ]
+}

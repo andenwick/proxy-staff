@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python execution/*.py:*)",
+      "Bash(python shared_tools/*.py:*)",
+      "WebFetch(*)",
+      "Read(*)",
+      "Write(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "mcp__tools__*"
+    ]
+  },
+  "mcpServers": {
+    "tools": {
+      "command": "npx",
+      "args": ["tsx", "../../src/mcp/toolManifestServer.ts"],
+      "env": {
+        "TENANT_FOLDER": "."
+      }
+    }
+  }
+}
