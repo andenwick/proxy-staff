@@ -58,7 +58,7 @@ RUN apk add --no-cache \
     ttf-freefont \
     dumb-init \
     su-exec \
-    && pip3 install --no-cache-dir requests \
+    && pip3 install --no-cache-dir --break-system-packages requests \
     && rm -rf /var/cache/apk/* /tmp/*
 
 # Set Playwright to use system Chromium instead of downloading browsers
