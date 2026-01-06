@@ -444,8 +444,8 @@ Hard rules that govern agent behavior. These are non-negotiable.
       'mcp__tools__*',
     ];
 
-    // Use absolute paths for MCP server to work correctly on Railway
-    const mcpServerScript = path.join(this.projectRoot, 'src', 'mcp', 'toolManifestServer.ts');
+    // Use compiled JS from dist/ - this exists in production Docker image
+    const mcpServerScript = path.join(this.projectRoot, 'dist', 'mcp', 'toolManifestServer.js');
 
     const settings = {
       permissions: {
@@ -453,8 +453,8 @@ Hard rules that govern agent behavior. These are non-negotiable.
       },
       mcpServers: {
         tools: {
-          command: 'npx',
-          args: ['tsx', mcpServerScript],
+          command: 'node',
+          args: [mcpServerScript],
           env: {
             TENANT_FOLDER: tenantFolder,
           },
