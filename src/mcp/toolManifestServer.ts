@@ -121,6 +121,8 @@ function executePythonScript(
   return new Promise((resolve, reject) => {
     const fullPath = path.join(TENANT_FOLDER, 'execution', scriptPath);
 
+    mcpLogger.info({ scriptPath, fullPath, TENANT_FOLDER }, 'Executing Python script');
+
     if (!fs.existsSync(fullPath)) {
       reject(new Error(`Script not found: ${scriptPath}`));
       return;
@@ -128,6 +130,8 @@ function executePythonScript(
 
     // Reload tenant env on each call to pick up credential changes
     const freshEnv = loadTenantEnv();
+
+    mcpLogger.info({ freshEnvKeys: Object.keys(freshEnv), TENANT_FOLDER }, 'Passing env to Python');
 
     const proc = spawn('python', [fullPath], {
       cwd: TENANT_FOLDER,
