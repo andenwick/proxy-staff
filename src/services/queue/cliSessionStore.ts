@@ -153,24 +153,50 @@ export async function createSession(
   let proc = await spawnCliProcess(tenantId, senderPhone, tenantFolder, cliSessionId, '--resume');
   let usedResume = true;
 
-  // Wait briefly and check for "No conversation found" error
+  // Wait briefly and check for session errors
+  // After a deploy, session files are wiped so --resume will fail
   const resumeCheckPromise = new Promise<boolean>((resolve) => {
     let stderrBuffer = '';
-    const timeout = setTimeout(() => resolve(true), 1000); // No error within 1s = success
+    let resolved = false;
+
+    const resolveOnce = (value: boolean, reason?: string) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        if (!value) {
+          logger.info({ tenantId, senderPhone: senderPhone.slice(-4), reason }, 'Resume check failed');
+        }
+        resolve(value);
+      }
+    };
+
+    // Longer timeout to account for cold starts after deploy
+    const timeout = setTimeout(() => resolveOnce(true), 2500);
 
     const stderrHandler = (data: Buffer) => {
       stderrBuffer += data.toString();
-      if (stderrBuffer.includes('No conversation found')) {
-        clearTimeout(timeout);
-        resolve(false);
+      const lowerStderr = stderrBuffer.toLowerCase();
+
+      // Check for various error patterns that indicate session doesn't exist
+      if (lowerStderr.includes('no conversation found') ||
+          lowerStderr.includes('session not found') ||
+          lowerStderr.includes('could not find') ||
+          lowerStderr.includes('does not exist') ||
+          lowerStderr.includes('invalid session') ||
+          lowerStderr.includes('error:')) {
+        resolveOnce(false, stderrBuffer.substring(0, 100));
       }
     };
 
     proc.stderr?.on('data', stderrHandler);
 
-    proc.on('close', () => {
-      clearTimeout(timeout);
-      resolve(false);
+    proc.on('close', (code) => {
+      // Process exited - if it exited quickly with an error, resume failed
+      resolveOnce(code === 0, `process exited with code ${code}`);
+    });
+
+    proc.on('error', (err) => {
+      resolveOnce(false, `spawn error: ${err.message}`);
     });
   });
 
@@ -180,7 +206,7 @@ export async function createSession(
     logger.info({ tenantId, senderPhone: senderPhone.slice(-4), cliSessionId }, 'No existing conversation, creating new session');
     // Kill the failed process and try with --session-id
     killProcessTree(proc);
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise(resolve => setTimeout(resolve, 300));
     proc = await spawnCliProcess(tenantId, senderPhone, tenantFolder, cliSessionId, '--session-id');
     usedResume = false;
   }
