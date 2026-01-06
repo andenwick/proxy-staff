@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment files
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+*.pid
+
+# Test coverage
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
+temp_*.json
+*temp_input.json
+
+# Development artifacts
+nul
+
+# AI/Development tools (local only)
+.claude/
+.serena/
+agent-os/
+tasks/
+AGENTS.md
+CLAUDE.md
+
+/src/generated/prisma
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Tenant data (keep only templates and active tenants)
+tenants/*
+!tenants/_template/
+!tenants/template/
+!tenants/anden/
+
+# Tenant secrets (never commit)
+tenants/*/.env
