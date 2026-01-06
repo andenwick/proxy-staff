@@ -91,6 +91,10 @@ COPY --from=builder /app/dist ./dist/
 COPY --from=builder /app/src/templates ./src/templates/
 COPY --from=builder /app/src/tools/python ./src/tools/python/
 
+# Copy tenant folders to a backup location (volume mount will hide /app/tenants)
+# These will be copied to the volume at startup if they don't exist
+COPY tenants ./tenant-seeds/
+
 # Create directory for tenant folders (will be mounted as volume in production)
 RUN mkdir -p /app/tenants && chown nodejs:nodejs /app/tenants
 
@@ -104,6 +108,21 @@ EXPOSE 3000
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Fix volume permissions as root, then drop to nodejs user for app
+# Fix volume permissions as root, seed tenant folders, then drop to nodejs user for app
 # Claude CLI requires non-root user when using --dangerously-skip-permissions
-CMD ["sh", "-c", "chown -R nodejs:nodejs /app/tenants 2>/dev/null; exec su-exec nodejs sh -c 'npx prisma migrate deploy && node dist/index.js'"]
+# Tenant seeding: copies static files from /app/tenant-seeds/ to /app/tenants/
+# - execution/ (tools) and directives/ (SOPs) are always synced from seeds
+# - life/, state/, history/ are preserved (user data)
+CMD ["sh", "-c", "\
+  chown -R nodejs:nodejs /app/tenants 2>/dev/null; \
+  for tenant in /app/tenant-seeds/*/; do \
+    name=$(basename $tenant); \
+    dest=/app/tenants/$name; \
+    mkdir -p $dest; \
+    echo \"Syncing tenant: $name\"; \
+    cp -f $tenant/CLAUDE.md $dest/ 2>/dev/null || true; \
+    cp -rf $tenant/execution $dest/ 2>/dev/null || true; \
+    cp -rf $tenant/directives $dest/ 2>/dev/null || true; \
+    chown -R nodejs:nodejs $dest; \
+  done; \
+  exec su-exec nodejs sh -c 'npx prisma migrate deploy && node dist/index.js'"]
