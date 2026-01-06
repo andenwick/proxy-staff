@@ -23,9 +23,17 @@ import pino from 'pino';
 // MCP servers must log to stderr (stdout is reserved for JSON-RPC protocol)
 // Use simple JSON logging to avoid pino-pretty transport issues in production
 const mcpLogger = pino(
-  { name: 'mcp-server' },
+  { name: 'mcp-server', level: 'debug' },
   pino.destination(2) // stderr file descriptor
 );
+
+// Startup debug logging
+mcpLogger.info({
+  TENANT_FOLDER: process.env.TENANT_FOLDER,
+  cwd: process.cwd(),
+  nodeVersion: process.version,
+  pid: process.pid
+}, 'MCP Server starting');
 
 // Tool definition from tool_manifest.json
 interface ToolDefinition {
@@ -53,6 +61,13 @@ const TENANT_FOLDER = process.env.TENANT_FOLDER || process.cwd();
 function loadToolManifest(): ToolManifest {
   const manifestPath = path.join(TENANT_FOLDER, 'execution', 'tool_manifest.json');
 
+  mcpLogger.debug({
+    TENANT_FOLDER,
+    manifestPath,
+    tenantFolderExists: fs.existsSync(TENANT_FOLDER),
+    executionFolderExists: fs.existsSync(path.join(TENANT_FOLDER, 'execution'))
+  }, 'Looking for tool manifest');
+
   if (!fs.existsSync(manifestPath)) {
     mcpLogger.warn({ manifestPath }, 'Tool manifest not found');
     return { tools: [] };
@@ -61,7 +76,7 @@ function loadToolManifest(): ToolManifest {
   try {
     const content = fs.readFileSync(manifestPath, 'utf-8');
     const manifest = JSON.parse(content) as ToolManifest;
-    mcpLogger.info({ toolCount: manifest.tools.length }, 'Loaded tools from manifest');
+    mcpLogger.info({ toolCount: manifest.tools.length, toolNames: manifest.tools.map(t => t.name) }, 'Loaded tools from manifest');
     return manifest;
   } catch (error) {
     mcpLogger.error({ error }, 'Failed to parse tool manifest');
