@@ -114,9 +114,14 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
       // Merge new credentials (overwrites existing)
       const mergedEnv = { ...existingEnv, ...credentials };
 
-      // Write .env file
+      // Write .env file (quote values that contain spaces or special chars)
       const envContent = Object.entries(mergedEnv)
-        .map(([key, value]) => `${key}=${value}`)
+        .map(([key, value]) => {
+          // Quote values containing spaces, quotes, or newlines
+          const needsQuotes = /[\s"'\n]/.test(value);
+          const escapedValue = needsQuotes ? `"${value.replace(/"/g, '\\"')}"` : value;
+          return `${key}=${escapedValue}`;
+        })
         .join('\n');
 
       fs.writeFileSync(envPath, envContent + '\n', 'utf-8');
