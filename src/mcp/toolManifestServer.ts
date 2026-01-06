@@ -63,14 +63,18 @@ function loadTenantEnv(): Record<string, string> {
   const envPath = path.join(TENANT_FOLDER, '.env');
   const tenantEnv: Record<string, string> = {};
 
+  mcpLogger.info({ envPath, TENANT_FOLDER, exists: fs.existsSync(envPath) }, 'Loading tenant .env');
+
   if (fs.existsSync(envPath)) {
     const result = loadDotenv({ path: envPath });
     if (result.parsed) {
       Object.assign(tenantEnv, result.parsed);
-      mcpLogger.info({ envPath, keyCount: Object.keys(result.parsed).length }, 'Loaded tenant .env');
+      mcpLogger.info({ envPath, keys: Object.keys(result.parsed) }, 'Loaded tenant .env');
+    } else {
+      mcpLogger.warn({ envPath }, 'Dotenv parsed but no keys found');
     }
   } else {
-    mcpLogger.debug({ envPath }, 'No tenant .env file found');
+    mcpLogger.warn({ envPath, TENANT_FOLDER }, 'No tenant .env file found');
   }
 
   return tenantEnv;
