@@ -21,16 +21,11 @@ import * as path from 'path';
 import pino from 'pino';
 
 // MCP servers must log to stderr (stdout is reserved for JSON-RPC protocol)
-const mcpLogger = pino({
-  transport: {
-    target: 'pino-pretty',
-    options: {
-      destination: 2, // stderr file descriptor
-      colorize: true,
-    },
-  },
-  name: 'mcp-server',
-});
+// Use simple JSON logging to avoid pino-pretty transport issues in production
+const mcpLogger = pino(
+  { name: 'mcp-server' },
+  pino.destination(2) // stderr file descriptor
+);
 
 // Tool definition from tool_manifest.json
 interface ToolDefinition {
