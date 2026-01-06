@@ -444,6 +444,9 @@ Hard rules that govern agent behavior. These are non-negotiable.
       'mcp__tools__*',
     ];
 
+    // Use absolute paths for MCP server to work correctly on Railway
+    const mcpServerScript = path.join(this.projectRoot, 'src', 'mcp', 'toolManifestServer.ts');
+
     const settings = {
       permissions: {
         allow: permissions,
@@ -451,9 +454,9 @@ Hard rules that govern agent behavior. These are non-negotiable.
       mcpServers: {
         tools: {
           command: 'npx',
-          args: ['tsx', '../../src/mcp/toolManifestServer.ts'],
+          args: ['tsx', mcpServerScript],
           env: {
-            TENANT_FOLDER: '.',
+            TENANT_FOLDER: tenantFolder,
           },
         },
       },
