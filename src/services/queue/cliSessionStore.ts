@@ -85,7 +85,45 @@ export function getSession(tenantId: string, senderPhone: string): CLISession | 
 }
 
 /**
+ * Spawn a CLI process with given session flag
+ */
+async function spawnCliProcess(
+  tenantId: string,
+  senderPhone: string,
+  tenantFolder: string,
+  cliSessionId: string,
+  sessionFlag: '--resume' | '--session-id'
+): Promise<ChildProcess> {
+  const args = [
+    '-p',
+    '--input-format', 'stream-json',
+    '--output-format', 'stream-json',
+    '--verbose',
+    sessionFlag, cliSessionId,
+    '--setting-sources', 'user,project,local',
+    '--dangerously-skip-permissions'
+  ];
+
+  logger.info({ tenantId, senderPhone: senderPhone.slice(-4), cliSessionId, sessionFlag, args: args.join(' ') }, 'Spawning CLI process');
+
+  const proc = spawn('claude', args, {
+    cwd: tenantFolder,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    shell: true,
+    env: {
+      ...process.env,
+      TENANT_ID: tenantId,
+      SENDER_PHONE: senderPhone,
+      API_BASE_URL: process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3000}`,
+    },
+  });
+
+  return proc;
+}
+
+/**
  * Create a new CLI session for a user
+ * Uses --resume first to load conversation history, falls back to --session-id for new conversations
  */
 export async function createSession(
   tenantId: string,
@@ -105,38 +143,49 @@ export async function createSession(
   await tenantFolderService.initializeTenantForCli(tenantId);
   const tenantFolder = tenantFolderService.getTenantFolder(tenantId);
 
-  // Generate CLI session ID from database session ID + timestamp to ensure uniqueness
-  // This prevents "session already in use" errors after container restarts
-  const cliSessionId = generateCliSessionId(dbSessionId, Date.now());
+  // Use database session ID directly for CLI session to maintain conversation history
+  // Don't add timestamp - we want to resume the same conversation
+  const cliSessionId = generateCliSessionId(dbSessionId, 0);
 
   logger.info({ tenantId, senderPhone: senderPhone.slice(-4), cliSessionId }, 'Creating new CLI session');
 
-  // Spawn CLI with stream-json mode
-  const args = [
-    '-p',
-    '--input-format', 'stream-json',
-    '--output-format', 'stream-json',
-    '--verbose',
-    '--session-id', cliSessionId,
-    '--setting-sources', 'user,project,local',
-    '--dangerously-skip-permissions'
-  ];
+  // Try --resume first to load conversation history, fall back to --session-id for new conversations
+  let proc = await spawnCliProcess(tenantId, senderPhone, tenantFolder, cliSessionId, '--resume');
+  let usedResume = true;
 
-  logger.info({ tenantId, senderPhone: senderPhone.slice(-4), cliSessionId, args: args.join(' ') }, 'Spawning CLI process');
+  // Wait briefly and check for "No conversation found" error
+  const resumeCheckPromise = new Promise<boolean>((resolve) => {
+    let stderrBuffer = '';
+    const timeout = setTimeout(() => resolve(true), 1000); // No error within 1s = success
 
-  const proc = spawn('claude', args, {
-    cwd: tenantFolder,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    shell: true,
-    env: {
-      ...process.env,
-      TENANT_ID: tenantId,
-      SENDER_PHONE: senderPhone,
-      API_BASE_URL: process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3000}`,
-    },
+    const stderrHandler = (data: Buffer) => {
+      stderrBuffer += data.toString();
+      if (stderrBuffer.includes('No conversation found')) {
+        clearTimeout(timeout);
+        resolve(false);
+      }
+    };
+
+    proc.stderr?.on('data', stderrHandler);
+
+    proc.on('close', () => {
+      clearTimeout(timeout);
+      resolve(false);
+    });
   });
 
-  logger.info({ tenantId, senderPhone: senderPhone.slice(-4), pid: proc.pid }, 'CLI process spawned');
+  const resumeSucceeded = await resumeCheckPromise;
+
+  if (!resumeSucceeded) {
+    logger.info({ tenantId, senderPhone: senderPhone.slice(-4), cliSessionId }, 'No existing conversation, creating new session');
+    // Kill the failed process and try with --session-id
+    killProcessTree(proc);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    proc = await spawnCliProcess(tenantId, senderPhone, tenantFolder, cliSessionId, '--session-id');
+    usedResume = false;
+  }
+
+  logger.info({ tenantId, senderPhone: senderPhone.slice(-4), pid: proc.pid, usedResume }, 'CLI process spawned');
 
   const session: CLISession = {
     tenantId,
