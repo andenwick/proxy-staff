@@ -41,11 +41,13 @@ FROM node:20-alpine AS production
 WORKDIR /app
 
 # Install runtime dependencies:
+# - bash for Claude CLI (required for spawning MCP servers and shell commands)
 # - Python 3 for tenant Python tools execution
 # - Chromium and minimal dependencies for Playwright browser automation
 # - dumb-init for proper signal handling
 # - su-exec for dropping privileges after fixing volume permissions
 RUN apk add --no-cache \
+    bash \
     python3 \
     chromium \
     nss \
