@@ -19,6 +19,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import pino from 'pino';
+import { config as loadDotenv } from 'dotenv';
 
 // MCP servers must log to stderr (stdout is reserved for JSON-RPC protocol)
 // Use simple JSON logging to avoid pino-pretty transport issues in production
@@ -54,6 +55,29 @@ interface ToolManifest {
 // Configuration
 const TOOL_TIMEOUT_MS = 60000; // 60 seconds
 const TENANT_FOLDER = process.env.TENANT_FOLDER || process.cwd();
+
+/**
+ * Load tenant-specific environment variables from .env file
+ */
+function loadTenantEnv(): Record<string, string> {
+  const envPath = path.join(TENANT_FOLDER, '.env');
+  const tenantEnv: Record<string, string> = {};
+
+  if (fs.existsSync(envPath)) {
+    const result = loadDotenv({ path: envPath });
+    if (result.parsed) {
+      Object.assign(tenantEnv, result.parsed);
+      mcpLogger.info({ envPath, keyCount: Object.keys(result.parsed).length }, 'Loaded tenant .env');
+    }
+  } else {
+    mcpLogger.debug({ envPath }, 'No tenant .env file found');
+  }
+
+  return tenantEnv;
+}
+
+// Load tenant env once at startup
+const tenantEnv = loadTenantEnv();
 
 /**
  * Load tool manifest from tenant folder
@@ -104,6 +128,7 @@ function executePythonScript(
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
+        ...tenantEnv,  // Tenant-specific env from .env file
         TENANT_FOLDER,
       },
     });
