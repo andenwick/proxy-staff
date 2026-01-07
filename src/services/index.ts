@@ -23,6 +23,7 @@ import { WebhookReceiverAdapter, ConditionPollingAdapter, EmailPollingAdapter, O
 import { browserSessionManager } from './browserSessionManager.js';
 import { LearningService } from './learningService.js';
 import { LearningScheduler } from './learningScheduler.js';
+import { TimelineService } from './timelineService.js';
 import {
   startWorker,
   stopWorker,
@@ -56,6 +57,7 @@ let claudeCliServiceInstance: ClaudeCliService | null = null;
 let pythonRunnerServiceInstance: PythonRunnerService | null = null;
 let learningServiceInstance: LearningService | null = null;
 let learningSchedulerInstance: LearningScheduler | null = null;
+let timelineServiceInstance: TimelineService | null = null;
 
 /**
  * Initialize all services. Call this once at startup.
@@ -102,6 +104,9 @@ export function initializeServices(): void {
   // Initialize tenant folder service for CLI mode setup
   tenantFolderServiceInstance = new TenantFolderService();
 
+  // Initialize timeline service for daily journal logging
+  timelineServiceInstance = new TimelineService();
+
   // Log CLI mode configuration
   const globalCliEnabled = process.env.USE_CLAUDE_CLI === 'true';
   logger.info(
@@ -128,7 +133,8 @@ export function initializeServices(): void {
     claudeCliServiceInstance,
     tenantFolderServiceInstance,
     messagingResolverInstance,
-    learningServiceInstance
+    learningServiceInstance,
+    timelineServiceInstance
   );
 
   // Initialize tenant resolver
@@ -463,4 +469,14 @@ export function getMessagingResolver(): MessagingServiceResolver {
     throw new Error('Services not initialized. Call initializeServices() first.');
   }
   return messagingResolverInstance;
+}
+
+/**
+ * Get the timeline service. Must call initializeServices first.
+ */
+export function getTimelineService(): TimelineService {
+  if (!timelineServiceInstance) {
+    throw new Error('Services not initialized. Call initializeServices() first.');
+  }
+  return timelineServiceInstance;
 }

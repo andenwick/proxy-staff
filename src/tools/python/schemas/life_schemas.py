@@ -295,20 +295,106 @@ QUESTIONS_SCHEMA = {
     "required": ["version"]
 }
 
-# Map file names to schemas
+# V2 schemas for new file types
+PROFILE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "version": {"type": "integer", "default": SCHEMA_VERSION},
+        "lastUpdated": {"type": "string", "format": "date-time"},
+        "name": {"type": "string"},
+        "timezone": {"type": "string"},
+        "role": {"type": "string"},
+        "industry": {"type": "string"}
+    },
+    "required": ["version"]
+}
+
+VOICE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "version": {"type": "integer", "default": SCHEMA_VERSION},
+        "lastUpdated": {"type": "string", "format": "date-time"},
+        "tone": {"type": "string"},
+        "style": {"type": "string"},
+        "personality": {"type": "array", "items": {"type": "string"}},
+        "avoidWords": {"type": "array", "items": {"type": "string"}},
+        "preferWords": {"type": "array", "items": {"type": "string"}}
+    },
+    "required": ["version"]
+}
+
+SERVICES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "version": {"type": "integer", "default": SCHEMA_VERSION},
+        "lastUpdated": {"type": "string", "format": "date-time"},
+        "services": {"type": "array", "items": {"type": "string"}},
+        "specializations": {"type": "array", "items": {"type": "string"}}
+    },
+    "required": ["version"]
+}
+
+PRICING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "version": {"type": "integer", "default": SCHEMA_VERSION},
+        "lastUpdated": {"type": "string", "format": "date-time"},
+        "rates": {"type": "array"},
+        "packages": {"type": "array"},
+        "discounts": {"type": "array"}
+    },
+    "required": ["version"]
+}
+
+FAQS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "version": {"type": "integer", "default": SCHEMA_VERSION},
+        "lastUpdated": {"type": "string", "format": "date-time"},
+        "faqs": {"type": "array"}
+    },
+    "required": ["version"]
+}
+
+POLICIES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "version": {"type": "integer", "default": SCHEMA_VERSION},
+        "lastUpdated": {"type": "string", "format": "date-time"},
+        "policies": {"type": "array"}
+    },
+    "required": ["version"]
+}
+
+# Map file names to schemas (V1 and V2)
 SCHEMA_MAP = {
-    "identity": IDENTITY_SCHEMA,
-    "identity.md": IDENTITY_SCHEMA,
+    # V2 identity/ files
+    "profile": PROFILE_SCHEMA,
+    "profile.md": PROFILE_SCHEMA,
+    "voice": VOICE_SCHEMA,
+    "voice.md": VOICE_SCHEMA,
+    # V2 knowledge/ files
+    "services": SERVICES_SCHEMA,
+    "services.md": SERVICES_SCHEMA,
+    "pricing": PRICING_SCHEMA,
+    "pricing.md": PRICING_SCHEMA,
+    "faqs": FAQS_SCHEMA,
+    "faqs.md": FAQS_SCHEMA,
+    "policies": POLICIES_SCHEMA,
+    "policies.md": POLICIES_SCHEMA,
+    # V1 legacy mappings
+    "identity": PROFILE_SCHEMA,  # V1 identity → V2 profile schema
+    "identity.md": PROFILE_SCHEMA,
     "boundaries": BOUNDARIES_SCHEMA,
     "boundaries.md": BOUNDARIES_SCHEMA,
     "patterns": PATTERNS_SCHEMA,
     "patterns.md": PATTERNS_SCHEMA,
     "contacts": CONTACTS_SCHEMA,
     "contacts.md": CONTACTS_SCHEMA,
-    "business": BUSINESS_SCHEMA,
-    "business.md": BUSINESS_SCHEMA,
-    "procedures": PROCEDURES_SCHEMA,
-    "procedures.md": PROCEDURES_SCHEMA,
+    "business": SERVICES_SCHEMA,  # V1 business → V2 services schema
+    "business.md": SERVICES_SCHEMA,
+    "procedures": POLICIES_SCHEMA,  # V1 procedures → V2 policies schema
+    "procedures.md": POLICIES_SCHEMA,
     "people": RELATIONSHIPS_SCHEMA,
     "people.md": RELATIONSHIPS_SCHEMA,
     "relationships": RELATIONSHIPS_SCHEMA,
@@ -318,11 +404,49 @@ SCHEMA_MAP = {
 
 # Default empty data for each schema type
 DEFAULT_DATA = {
+    # V2 identity/ files
+    "profile": {
+        "version": SCHEMA_VERSION,
+        "name": "",
+        "timezone": "",
+        "role": "",
+        "industry": ""
+    },
+    "voice": {
+        "version": SCHEMA_VERSION,
+        "tone": "professional-friendly",
+        "style": "concise",
+        "personality": [],
+        "avoidWords": [],
+        "preferWords": []
+    },
+    # V2 knowledge/ files
+    "services": {
+        "version": SCHEMA_VERSION,
+        "services": [],
+        "specializations": []
+    },
+    "pricing": {
+        "version": SCHEMA_VERSION,
+        "rates": [],
+        "packages": [],
+        "discounts": []
+    },
+    "faqs": {
+        "version": SCHEMA_VERSION,
+        "faqs": []
+    },
+    "policies": {
+        "version": SCHEMA_VERSION,
+        "policies": []
+    },
+    # V1 legacy (backward compat - map to V2 defaults)
     "identity": {
         "version": SCHEMA_VERSION,
         "name": "",
         "timezone": "",
-        "preferences": {}
+        "role": "",
+        "industry": ""
     },
     "boundaries": {
         "version": SCHEMA_VERSION,

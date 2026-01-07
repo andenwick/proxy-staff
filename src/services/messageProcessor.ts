@@ -7,6 +7,7 @@ import { MessagingServiceResolver } from './messaging/resolver.js';
 import { ClaudeCliService } from './claudeCli.js';
 import { TenantFolderService } from './tenantFolder.js';
 import { LearningService } from './learningService.js';
+import { TimelineService } from './timelineService.js';
 import { getOrCreateSession, endSession, createSession } from './session.js';
 import { logger } from '../utils/logger.js';
 import {
@@ -49,6 +50,7 @@ export class MessageProcessor {
   private claudeCliService: ClaudeCliService;
   private tenantFolderService: TenantFolderService;
   private learningService: LearningService | null;
+  private timelineService: TimelineService | null;
 
   constructor(
     prisma: PrismaClient,
@@ -56,7 +58,8 @@ export class MessageProcessor {
     claudeCliService: ClaudeCliService,
     tenantFolderService: TenantFolderService,
     messagingResolver?: MessagingServiceResolver,
-    learningService?: LearningService
+    learningService?: LearningService,
+    timelineService?: TimelineService
   ) {
     this.prisma = prisma;
     this.whatsappService = whatsappService;
@@ -64,6 +67,7 @@ export class MessageProcessor {
     this.claudeCliService = claudeCliService;
     this.tenantFolderService = tenantFolderService;
     this.learningService = learningService || null;
+    this.timelineService = timelineService || null;
   }
 
   /**
@@ -160,6 +164,12 @@ export class MessageProcessor {
         deliveryStatus: 'DELIVERED',
       });
 
+      // Log to timeline (non-blocking)
+      if (this.timelineService) {
+        this.timelineService.logMessage(tenantId, 'inbound', messageContent, sanitizedPhone)
+          .catch(err => logger.error({ err, tenantId }, 'Timeline logging failed'));
+      }
+
       // Initialize tenant folder for CLI (creates CLAUDE.md, settings.json, shared_tools)
       await this.tenantFolderService.initializeTenantForCli(tenantId);
 
@@ -199,6 +209,12 @@ export class MessageProcessor {
         content: response,
         deliveryStatus: 'SENT',
       });
+
+      // Log to timeline (non-blocking)
+      if (this.timelineService) {
+        this.timelineService.logMessage(tenantId, 'outbound', response, sanitizedPhone)
+          .catch(err => logger.error({ err, tenantId }, 'Timeline logging failed'));
+      }
 
       // Record feedback signals (non-blocking)
       try {

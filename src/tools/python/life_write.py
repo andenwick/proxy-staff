@@ -39,24 +39,50 @@ from schemas.life_schemas import get_default_data, validate_data, SCHEMA_VERSION
 
 
 def get_life_file_path(file_name: str) -> Path:
-    """Get the full path to a life file."""
+    """Get the full path to a life/identity/knowledge file."""
+    # V2 structure directories
+    identity_dir = Path("identity")
+    knowledge_dir = Path("knowledge")
+    relationships_dir = Path("relationships")
+
+    # V1 legacy directory (for backward compatibility)
     life_dir = Path("life")
 
+    # Map short names to full paths - V2 structure first, V1 fallback
     file_map = {
-        "identity": life_dir / "identity.md",
+        # V2 identity/ files
+        "profile": identity_dir / "profile.md",
+        "voice": identity_dir / "voice.md",
+        # V2 knowledge/ files
+        "services": knowledge_dir / "services.md",
+        "pricing": knowledge_dir / "pricing.md",
+        "faqs": knowledge_dir / "faqs.md",
+        "policies": knowledge_dir / "policies.md",
+        # V2 relationships/ (folder-based)
+        "clients": relationships_dir / "clients",
+        "prospects": relationships_dir / "prospects",
+        "contacts": relationships_dir / "contacts",
+
+        # V1 legacy mappings (backward compatibility)
+        "identity": identity_dir / "profile.md",  # V1 identity → V2 profile
         "boundaries": life_dir / "boundaries.md",
         "patterns": life_dir / "patterns.md",
         "questions": life_dir / "questions.md",
-        "contacts": life_dir / "knowledge" / "contacts.md",
-        "business": life_dir / "knowledge" / "business.md",
-        "procedures": life_dir / "knowledge" / "procedures.md",
-        "people": life_dir / "relationships" / "people.md",
-        "relationships": life_dir / "relationships" / "people.md",
+        "business": knowledge_dir / "services.md",  # V1 business → V2 services
+        "procedures": knowledge_dir / "policies.md",  # V1 procedures → V2 policies
+        "people": relationships_dir / "contacts",  # V1 people → V2 contacts folder
+        "relationships": relationships_dir / "contacts",
     }
 
     if file_name in file_map:
         return file_map[file_name]
 
+    # Check if it's a path starting with known directories
+    for prefix in ["identity/", "knowledge/", "relationships/", "operations/", "timeline/", "data/"]:
+        if file_name.startswith(prefix):
+            return Path(file_name)
+
+    # Legacy: treat as relative path within life/ (V1 compatibility)
     if not file_name.startswith("life/"):
         return life_dir / file_name
 
