@@ -57,3 +57,4 @@ tenants/*
 
 # Tenant secrets (never commit)
 tenants/*/.env
+tenants/*/.claude/
