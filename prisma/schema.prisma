@@ -146,6 +146,8 @@ model Tenant {
   browser_sessions         browser_sessions[]
   // Async task queue relations
   async_jobs               async_jobs[]
+  // Memory system relations
+  memories                 tenant_memories[]
 
   @@map("tenants")
 }
@@ -494,4 +496,23 @@ enum AsyncJobStatus {
   FAILED
   CANCELLED
   INTERRUPTED
+}
+
+// ==========================================
+// Persistent Memory System Tables
+// ==========================================
+
+// Database-backed memories that survive Railway deploys
+model tenant_memories {
+  id           String   @id @default(uuid())
+  tenant_id    String
+  memory_type  String   // "identity", "boundaries", "patterns", "relationships", etc.
+  data         Json     // The structured JSON data
+  markdown     String   @default("") // Optional markdown content
+  version      Int      @default(1)
+  updated_at   DateTime @default(now()) @updatedAt
+  tenant       Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, memory_type])
+  @@index([tenant_id])
 }

@@ -714,6 +714,8 @@ Hard rules that govern agent behavior. These are non-negotiable.
           args: [mcpServerScript],
           env: {
             TENANT_FOLDER: tenantFolder,
+            // Pass DATABASE_URL for memory tools
+            ...(process.env.DATABASE_URL ? { DATABASE_URL: process.env.DATABASE_URL } : {}),
           },
         },
       },
