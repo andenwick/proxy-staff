@@ -86,6 +86,21 @@ Available life files:
 - **questions** - Questions to ask user to learn more
 - **relationships/people** - People mentioned in conversations
 
+## Google Docs Formatting
+
+When creating Google Docs with `mcp__tools__drive_create_doc`, ALWAYS follow this 2-step process:
+
+1. **Create** with `drive_create_doc` → save the returned `file.id`
+2. **Format** with `docs_format` using that doc_id
+
+Load `read_directive("google_docs_formatting")` for the full formatting guide with examples.
+
+Available formatting operations:
+- Headings: `TITLE`, `HEADING_1`, `HEADING_2`, `HEADING_3`
+- Text styles: bold, italic, underline, font size, color
+- Bullets and numbered lists
+- Alignment: center, left, right, justified
+
 ## Summary
 
 Read instructions (directives), make decisions, call tools, handle errors. Be pragmatic. Be reliable. Be concise.
