@@ -1,0 +1,100 @@
+{
+  "tenantId": "sample-business",
+  "collectedAt": "2026-01-06T00:00:00.000Z",
+  "business": {
+    "name": "Sample Business Co",
+    "industry": "consulting",
+    "location": {
+      "city": "Salt Lake City",
+      "state": "Utah"
+    },
+    "hours": {
+      "timezone": "America/Denver",
+      "schedule": "Mon-Fri 9am-5pm"
+    },
+    "owner": {
+      "name": "Jane Smith",
+      "role": "Founder & CEO"
+    }
+  },
+  "voice": {
+    "tone": "friendly",
+    "style": "concise",
+    "personality": ["helpful", "knowledgeable", "patient"],
+    "avoidWords": ["synergy", "leverage", "circle back"],
+    "preferWords": ["clients", "partners", "team"]
+  },
+  "services": [
+    {
+      "name": "Business Strategy Consulting",
+      "description": "Help small businesses develop growth strategies and optimize operations.",
+      "targetCustomer": "Small business owners with 5-50 employees",
+      "differentiators": ["20+ years experience", "Local market expertise", "Hands-on approach"]
+    },
+    {
+      "name": "Leadership Coaching",
+      "description": "One-on-one coaching for executives and business owners.",
+      "targetCustomer": "C-suite executives and founders"
+    }
+  ],
+  "pricing": {
+    "model": "hourly",
+    "ranges": "$150-300/hour",
+    "paymentTerms": "50% upfront, 50% on completion",
+    "tiers": [
+      {
+        "name": "Strategy Session",
+        "price": "$500",
+        "description": "One-time deep dive into your business",
+        "features": ["2-hour session", "Written recommendations", "30-day follow-up"]
+      },
+      {
+        "name": "Monthly Retainer",
+        "price": "$2,500/month",
+        "description": "Ongoing strategic support",
+        "features": ["Weekly calls", "Email support", "Quarterly reviews"]
+      }
+    ]
+  },
+  "faqs": [
+    {
+      "question": "What industries do you work with?",
+      "answer": "We work with a variety of industries including tech, professional services, retail, and manufacturing. Our frameworks apply across sectors."
+    },
+    {
+      "question": "How long does a typical engagement last?",
+      "answer": "Most strategy projects run 3-6 months. Coaching engagements are typically ongoing monthly retainers."
+    }
+  ],
+  "policies": [
+    {
+      "name": "Cancellation Policy",
+      "content": "Cancel meetings 24 hours in advance. Late cancellations may be charged 50% of the session fee."
+    }
+  ],
+  "workflows": [
+    { "id": "lead-handling", "name": "Lead Handling", "enabled": true },
+    { "id": "appointment-scheduling", "name": "Appointment Scheduling", "enabled": true },
+    { "id": "follow-up", "name": "Follow-up", "enabled": true },
+    { "id": "inquiry-response", "name": "Inquiry Response", "enabled": true },
+    { "id": "email-management", "name": "Email Management", "enabled": false }
+  ],
+  "goals": {
+    "primaryObjective": "Respond to every lead within 5 minutes so no opportunity is missed",
+    "painPoints": [
+      "Missing calls while in client meetings",
+      "Forgetting to follow up with prospects",
+      "Spending too much time on repetitive email responses"
+    ],
+    "tasksToAutomate": [
+      "Initial lead response and qualification",
+      "Appointment scheduling and reminders",
+      "Follow-up sequences for prospects"
+    ],
+    "successMetrics": [
+      "Response time under 5 minutes",
+      "Zero missed leads",
+      "30% increase in booked consultations"
+    ]
+  }
+}
