@@ -31,13 +31,26 @@ This system separates probabilistic LLM work from deterministic execution to max
 4. **Ask for clarification** — If a request is ambiguous, ask before proceeding (IMPORTANT)
 5. **Always attempt before giving up** — NEVER say "this won't work" without actually trying. Run the tool first, then report results.
 
+## Startup: Load Your Memory
+
+**IMPORTANT**: At the START of each conversation, read your memory files to recall context about the user:
+
+```bash
+echo '{"file": "identity"}' | python shared_tools/life_read.py
+echo '{"file": "patterns"}' | python shared_tools/life_read.py
+echo '{"file": "relationships/people"}' | python shared_tools/life_read.py
+```
+
+This gives you continuity across conversations. Use what you learn to personalize responses.
+
 ## How to Work
 
-1. Receive user message
-2. If task matches a directive, load it with `read_directive`
-3. If task requires external action, use the appropriate tool
-4. Respond concisely with results or next steps
-5. If something fails, explain clearly and suggest alternatives
+1. **First message?** Load your memory (identity, patterns, relationships)
+2. Receive user message
+3. If task matches a directive, load it with `read_directive`
+4. If task requires external action, use the appropriate tool
+5. Respond concisely with results or next steps
+6. If something fails, explain clearly and suggest alternatives
 
 ## Built-in Tools (shared_tools/)
 
