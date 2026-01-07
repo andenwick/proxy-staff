@@ -10,7 +10,8 @@
     "test": "jest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\"",
-    "mcp:tools": "tsx src/mcp/toolManifestServer.ts"
+    "mcp:tools": "tsx src/mcp/toolManifestServer.ts",
+    "onboard": "tsx scripts/onboard.ts"
   },
   "keywords": [
     "proxystaff",
