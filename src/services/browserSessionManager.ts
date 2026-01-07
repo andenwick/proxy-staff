@@ -342,8 +342,10 @@ export class BrowserSessionManager {
     await this.createDatabaseRecord(sessionId, tenantId, persistent, now, leaseOwner, leaseExpiresAt);
 
     // Launch browser
+    // Use system chromium in Docker via PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH env var
     const browser = await chromium.launch({
       headless: true,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 
