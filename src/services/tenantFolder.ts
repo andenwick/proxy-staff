@@ -53,24 +53,46 @@ export class TenantFolderService {
   /**
    * Ensure CLAUDE.md exists in the tenant folder.
    *
-   * SYSTEM PROMPT HIERARCHY:
-   * 1. tenants/{id}/directives/README.md  - PRIMARY source (per-tenant customization)
-   * 2. src/templates/CLAUDE.md            - FALLBACK template (used if no directives/README.md)
+   * SYSTEM PROMPT HIERARCHY (v2):
+   * 1. tenants/{id}/operations/workflows/README.md  - PRIMARY source (v2 structure)
+   * 2. tenants/{id}/directives/README.md           - LEGACY fallback (v1 structure)
+   * 3. src/templates/CLAUDE.md                     - FALLBACK template
    *
-   * Flow: Reads directives/README.md → appends WhatsApp instructions → writes CLAUDE.md
-   * The generated CLAUDE.md is what Claude CLI reads, but directives/README.md is the source.
+   * Flow: Reads README.md → appends communication instructions → writes CLAUDE.md
+   * The generated CLAUDE.md is what Claude CLI reads.
    *
    * To update system prompt:
    * - For ALL tenants: Edit src/templates/CLAUDE.md
-   * - For ONE tenant: Edit their tenants/{id}/directives/README.md
+   * - For ONE tenant: Edit their tenants/{id}/operations/workflows/README.md
    */
   async ensureClaudeMd(tenantId: string): Promise<void> {
     const tenantFolder = this.getTenantFolder(tenantId);
     const claudeMdPath = path.join(tenantFolder, 'CLAUDE.md');
+    // v2 structure: operations/workflows/README.md
+    const workflowsPath = path.join(tenantFolder, 'operations', 'workflows', 'README.md');
+    // v1 legacy: directives/README.md
     const directivesPath = path.join(tenantFolder, 'directives', 'README.md');
     const templatePath = path.join(this.projectRoot, 'src', 'templates', 'CLAUDE.md');
 
-    // Try to read from directives/README.md first
+    // Try to read from operations/workflows/README.md first (v2)
+    try {
+      const workflowsContent = await fs.promises.readFile(workflowsPath, 'utf-8');
+      const communicationInstructions = `
+
+## Communication Guidelines
+- Keep messages concise and mobile-friendly
+- Use simple formatting
+- Be responsive and helpful
+`;
+      const generatedContent = workflowsContent + communicationInstructions;
+      await fs.promises.writeFile(claudeMdPath, generatedContent, 'utf-8');
+      logger.info({ tenantId, claudeMdPath }, 'Generated CLAUDE.md from operations/workflows');
+      return;
+    } catch {
+      // operations/workflows/README.md doesn't exist, try legacy directives/
+    }
+
+    // Try legacy directives/README.md (v1)
     try {
       const directivesContent = await fs.promises.readFile(directivesPath, 'utf-8');
       // Generate CLAUDE.md with directives content and WhatsApp instructions
@@ -290,6 +312,241 @@ People, connections, and context.
     }
 
     logger.info({ tenantId, lifeDir }, 'Life folder structure ensured');
+  }
+
+  // ============================================
+  // NEW ARCHITECTURE (v2) - Phase 1-2 Evolution
+  // ============================================
+
+  /**
+   * Ensure identity/ folder exists with profile and voice files.
+   */
+  async ensureIdentityFolder(tenantId: string): Promise<void> {
+    const tenantFolder = this.getTenantFolder(tenantId);
+    const identityDir = path.join(tenantFolder, 'identity');
+    const brandDir = path.join(identityDir, 'brand');
+
+    // Create directories
+    await fs.promises.mkdir(identityDir, { recursive: true });
+    await fs.promises.mkdir(brandDir, { recursive: true });
+
+    const now = new Date().toISOString();
+    const templateFiles: Array<{ path: string; content: string }> = [
+      {
+        path: path.join(identityDir, 'profile.md'),
+        content: `---json
+{
+  "version": 1,
+  "lastUpdated": "${now}",
+  "name": "",
+  "timezone": "",
+  "role": "",
+  "industry": ""
+}
+---
+# Profile
+
+Who I am and who I serve.
+`,
+      },
+      {
+        path: path.join(identityDir, 'voice.md'),
+        content: `---json
+{
+  "version": 1,
+  "lastUpdated": "${now}",
+  "tone": "professional-friendly",
+  "style": "concise",
+  "personality": [],
+  "avoidWords": [],
+  "preferWords": []
+}
+---
+# Voice
+
+How I communicate with users.
+`,
+      },
+    ];
+
+    for (const template of templateFiles) {
+      try {
+        await fs.promises.access(template.path);
+      } catch {
+        await fs.promises.writeFile(template.path, template.content, 'utf-8');
+        logger.info({ tenantId, path: template.path }, 'Created identity template file');
+      }
+    }
+
+    logger.info({ tenantId, identityDir }, 'Identity folder structure ensured');
+  }
+
+  /**
+   * Ensure knowledge/ folder exists with business knowledge files.
+   */
+  async ensureKnowledgeFolder(tenantId: string): Promise<void> {
+    const tenantFolder = this.getTenantFolder(tenantId);
+    const knowledgeDir = path.join(tenantFolder, 'knowledge');
+
+    await fs.promises.mkdir(knowledgeDir, { recursive: true });
+
+    const now = new Date().toISOString();
+    const templateFiles: Array<{ path: string; content: string }> = [
+      {
+        path: path.join(knowledgeDir, 'services.md'),
+        content: `---json
+{
+  "version": 1,
+  "lastUpdated": "${now}",
+  "services": [],
+  "specializations": []
+}
+---
+# Services
+
+What services/products are offered.
+`,
+      },
+      {
+        path: path.join(knowledgeDir, 'pricing.md'),
+        content: `---json
+{
+  "version": 1,
+  "lastUpdated": "${now}",
+  "rates": [],
+  "packages": [],
+  "discounts": []
+}
+---
+# Pricing
+
+Pricing information and packages.
+`,
+      },
+      {
+        path: path.join(knowledgeDir, 'faqs.md'),
+        content: `---json
+{
+  "version": 1,
+  "lastUpdated": "${now}",
+  "faqs": []
+}
+---
+# Frequently Asked Questions
+
+Common questions and answers.
+`,
+      },
+      {
+        path: path.join(knowledgeDir, 'policies.md'),
+        content: `---json
+{
+  "version": 1,
+  "lastUpdated": "${now}",
+  "policies": []
+}
+---
+# Policies
+
+Business policies and rules.
+`,
+      },
+    ];
+
+    for (const template of templateFiles) {
+      try {
+        await fs.promises.access(template.path);
+      } catch {
+        await fs.promises.writeFile(template.path, template.content, 'utf-8');
+        logger.info({ tenantId, path: template.path }, 'Created knowledge template file');
+      }
+    }
+
+    logger.info({ tenantId, knowledgeDir }, 'Knowledge folder structure ensured');
+  }
+
+  /**
+   * Ensure relationships/ folder exists with client/prospect/contact subdirs.
+   */
+  async ensureRelationshipsFolder(tenantId: string): Promise<void> {
+    const tenantFolder = this.getTenantFolder(tenantId);
+    const relationshipsDir = path.join(tenantFolder, 'relationships');
+
+    const directories = [
+      relationshipsDir,
+      path.join(relationshipsDir, 'clients'),
+      path.join(relationshipsDir, 'prospects'),
+      path.join(relationshipsDir, 'contacts'),
+    ];
+
+    for (const dir of directories) {
+      await fs.promises.mkdir(dir, { recursive: true });
+    }
+
+    logger.info({ tenantId, relationshipsDir }, 'Relationships folder structure ensured');
+  }
+
+  /**
+   * Ensure operations/ folder exists with workflows/campaigns/schedules subdirs.
+   */
+  async ensureOperationsFolder(tenantId: string): Promise<void> {
+    const tenantFolder = this.getTenantFolder(tenantId);
+    const operationsDir = path.join(tenantFolder, 'operations');
+
+    const directories = [
+      operationsDir,
+      path.join(operationsDir, 'workflows'),
+      path.join(operationsDir, 'campaigns'),
+      path.join(operationsDir, 'schedules'),
+    ];
+
+    for (const dir of directories) {
+      await fs.promises.mkdir(dir, { recursive: true });
+    }
+
+    logger.info({ tenantId, operationsDir }, 'Operations folder structure ensured');
+  }
+
+  /**
+   * Ensure timeline/ folder exists for daily journals.
+   */
+  async ensureTimelineFolder(tenantId: string): Promise<void> {
+    const tenantFolder = this.getTenantFolder(tenantId);
+    const timelineDir = path.join(tenantFolder, 'timeline');
+
+    await fs.promises.mkdir(timelineDir, { recursive: true });
+
+    logger.info({ tenantId, timelineDir }, 'Timeline folder structure ensured');
+  }
+
+  /**
+   * Ensure data/ folder exists with imports/sync subdirs.
+   */
+  async ensureDataFolder(tenantId: string): Promise<void> {
+    const tenantFolder = this.getTenantFolder(tenantId);
+    const dataDir = path.join(tenantFolder, 'data');
+
+    const directories = [
+      dataDir,
+      path.join(dataDir, 'imports'),
+      path.join(dataDir, 'sync'),
+    ];
+
+    for (const dir of directories) {
+      await fs.promises.mkdir(dir, { recursive: true });
+    }
+
+    logger.info({ tenantId, dataDir }, 'Data folder structure ensured');
+  }
+
+  /**
+   * Check if tenant uses new v2 folder structure.
+   * Returns true if identity/ folder exists.
+   */
+  async usesV2Structure(tenantId: string): Promise<boolean> {
+    const tenantFolder = this.getTenantFolder(tenantId);
+    const identityDir = path.join(tenantFolder, 'identity');
+    return fs.existsSync(identityDir);
   }
 
   /**
@@ -567,19 +824,47 @@ Hard rules that govern agent behavior. These are non-negotiable.
       logger.error({ tenantId, error }, 'Failed to create staging/backup directories');
     }
 
-    // Run all setup functions
+    // Run all setup functions (v2 architecture)
     try {
-      await this.ensureLifeFolder(tenantId);
-      logger.info({ tenantId }, 'Life folder setup complete');
+      await this.ensureIdentityFolder(tenantId);
+      logger.info({ tenantId }, 'Identity folder setup complete');
     } catch (error) {
-      logger.error({ tenantId, error }, 'Failed to setup life folder');
+      logger.error({ tenantId, error }, 'Failed to setup identity folder');
     }
 
     try {
-      await this.ensureBoundariesFile(tenantId);
-      logger.info({ tenantId }, 'Boundaries file setup complete');
+      await this.ensureKnowledgeFolder(tenantId);
+      logger.info({ tenantId }, 'Knowledge folder setup complete');
     } catch (error) {
-      logger.error({ tenantId, error }, 'Failed to setup boundaries file');
+      logger.error({ tenantId, error }, 'Failed to setup knowledge folder');
+    }
+
+    try {
+      await this.ensureRelationshipsFolder(tenantId);
+      logger.info({ tenantId }, 'Relationships folder setup complete');
+    } catch (error) {
+      logger.error({ tenantId, error }, 'Failed to setup relationships folder');
+    }
+
+    try {
+      await this.ensureOperationsFolder(tenantId);
+      logger.info({ tenantId }, 'Operations folder setup complete');
+    } catch (error) {
+      logger.error({ tenantId, error }, 'Failed to setup operations folder');
+    }
+
+    try {
+      await this.ensureTimelineFolder(tenantId);
+      logger.info({ tenantId }, 'Timeline folder setup complete');
+    } catch (error) {
+      logger.error({ tenantId, error }, 'Failed to setup timeline folder');
+    }
+
+    try {
+      await this.ensureDataFolder(tenantId);
+      logger.info({ tenantId }, 'Data folder setup complete');
+    } catch (error) {
+      logger.error({ tenantId, error }, 'Failed to setup data folder');
     }
 
     try {
