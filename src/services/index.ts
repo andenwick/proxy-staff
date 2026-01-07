@@ -24,6 +24,10 @@ import { browserSessionManager } from './browserSessionManager.js';
 import { LearningService } from './learningService.js';
 import { LearningScheduler } from './learningScheduler.js';
 import { TimelineService } from './timelineService.js';
+import { CampaignService } from './campaignService.js';
+import { ApprovalQueueService } from './approvalQueueService.js';
+import { UnsubscribeService } from './unsubscribeService.js';
+import { CampaignScheduler } from './campaignScheduler.js';
 import {
   startWorker,
   stopWorker,
@@ -58,6 +62,10 @@ let pythonRunnerServiceInstance: PythonRunnerService | null = null;
 let learningServiceInstance: LearningService | null = null;
 let learningSchedulerInstance: LearningScheduler | null = null;
 let timelineServiceInstance: TimelineService | null = null;
+let campaignServiceInstance: CampaignService | null = null;
+let approvalQueueServiceInstance: ApprovalQueueService | null = null;
+let unsubscribeServiceInstance: UnsubscribeService | null = null;
+let campaignSchedulerInstance: CampaignScheduler | null = null;
 
 /**
  * Initialize all services. Call this once at startup.
@@ -178,6 +186,20 @@ export function initializeServices(): void {
   learningSchedulerInstance.start();
   logger.info('Learning scheduler initialized and started');
 
+  // Initialize campaign services
+  campaignServiceInstance = new CampaignService();
+  approvalQueueServiceInstance = new ApprovalQueueService();
+  unsubscribeServiceInstance = new UnsubscribeService();
+  campaignSchedulerInstance = new CampaignScheduler(
+    prisma,
+    campaignServiceInstance,
+    approvalQueueServiceInstance,
+    unsubscribeServiceInstance,
+    timelineServiceInstance
+  );
+  campaignSchedulerInstance.start();
+  logger.info('Campaign services initialized and scheduler started (15-minute cycle)');
+
   // Start browser session manager (cleanup interval)
   browserSessionManager.start();
   logger.info('Browser session manager started');
@@ -296,6 +318,16 @@ export async function shutdownServices(): Promise<void> {
       logger.info('Learning scheduler stopped');
     } catch (error) {
       logger.error({ error }, 'Error stopping learning scheduler');
+    }
+  }
+
+  // 2.55. Stop campaign scheduler
+  if (campaignSchedulerInstance) {
+    try {
+      await campaignSchedulerInstance.stop();
+      logger.info('Campaign scheduler stopped');
+    } catch (error) {
+      logger.error({ error }, 'Error stopping campaign scheduler');
     }
   }
 
@@ -479,4 +511,44 @@ export function getTimelineService(): TimelineService {
     throw new Error('Services not initialized. Call initializeServices() first.');
   }
   return timelineServiceInstance;
+}
+
+/**
+ * Get the campaign service. Must call initializeServices first.
+ */
+export function getCampaignService(): CampaignService {
+  if (!campaignServiceInstance) {
+    throw new Error('Services not initialized. Call initializeServices() first.');
+  }
+  return campaignServiceInstance;
+}
+
+/**
+ * Get the approval queue service. Must call initializeServices first.
+ */
+export function getApprovalQueueService(): ApprovalQueueService {
+  if (!approvalQueueServiceInstance) {
+    throw new Error('Services not initialized. Call initializeServices() first.');
+  }
+  return approvalQueueServiceInstance;
+}
+
+/**
+ * Get the unsubscribe service. Must call initializeServices first.
+ */
+export function getUnsubscribeService(): UnsubscribeService {
+  if (!unsubscribeServiceInstance) {
+    throw new Error('Services not initialized. Call initializeServices() first.');
+  }
+  return unsubscribeServiceInstance;
+}
+
+/**
+ * Get the campaign scheduler. Must call initializeServices first.
+ */
+export function getCampaignScheduler(): CampaignScheduler {
+  if (!campaignSchedulerInstance) {
+    throw new Error('Services not initialized. Call initializeServices() first.');
+  }
+  return campaignSchedulerInstance;
 }
