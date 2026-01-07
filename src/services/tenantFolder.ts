@@ -723,7 +723,13 @@ Hard rules that govern agent behavior. These are non-negotiable.
 
     // Write settings file
     await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
-    logger.info({ tenantId, settingsPath }, 'Generated .claude/settings.local.json');
+    logger.info({
+      tenantId,
+      settingsPath,
+      hasDatabaseUrl: !!process.env.DATABASE_URL,
+      mcpServerScript,
+      envKeys: Object.keys(settings.mcpServers.tools.env)
+    }, 'Generated .claude/settings.local.json');
   }
 
   /**

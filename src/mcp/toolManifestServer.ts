@@ -64,6 +64,13 @@ const TENANT_ID = path.basename(TENANT_FOLDER);
 
 // Initialize Prisma client if DATABASE_URL is available
 let prisma: PrismaClient | null = null;
+mcpLogger.info({
+  DATABASE_URL_SET: !!DATABASE_URL,
+  TENANT_FOLDER,
+  TENANT_ID,
+  envKeys: Object.keys(process.env).filter(k => k.includes('DATABASE') || k.includes('TENANT'))
+}, 'MCP Server environment check');
+
 if (DATABASE_URL) {
   // Prisma reads DATABASE_URL from process.env automatically
   prisma = new PrismaClient();
