@@ -14,6 +14,83 @@
         },
         "required": ["message"]
       }
+    },
+    {
+      "name": "drive_create_doc",
+      "description": "Create a Google Doc (optionally with text content). Step 1 of doc creation - use docs_format after to apply formatting.",
+      "script": "drive_create_doc.py",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Document title"
+          },
+          "content": {
+            "type": "string",
+            "description": "Optional text content to import into the doc"
+          },
+          "parent_id": {
+            "type": "string",
+            "description": "Destination folder ID"
+          }
+        },
+        "required": ["title"]
+      }
+    },
+    {
+      "name": "docs_format",
+      "description": "Apply formatting to a Google Doc: headings, bold, italic, bullets, alignment. Step 2 of doc creation - use after drive_create_doc.",
+      "script": "docs_format.py",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "doc_id": {
+            "type": "string",
+            "description": "Google Doc ID to update (from drive_create_doc response)"
+          },
+          "operations": {
+            "type": "array",
+            "description": "List of formatting operations to apply",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Operation type: style_text, paragraph_style, bullets, replace_text, insert_text"
+                },
+                "match": {
+                  "type": "string",
+                  "description": "Text to match for applying the operation"
+                },
+                "named_style_type": {
+                  "type": "string",
+                  "description": "For paragraph_style: TITLE, HEADING_1, HEADING_2, HEADING_3, NORMAL_TEXT"
+                },
+                "alignment": {
+                  "type": "string",
+                  "description": "For paragraph_style: START, CENTER, END, JUSTIFIED"
+                },
+                "bold": { "type": "boolean" },
+                "italic": { "type": "boolean" },
+                "underline": { "type": "boolean" },
+                "font_size_pt": { "type": "number" },
+                "color_rgb": {
+                  "type": "array",
+                  "items": { "type": "number" },
+                  "description": "RGB array [r,g,b] for text color"
+                },
+                "preset": {
+                  "type": "string",
+                  "description": "For bullets: BULLET_DISC_CIRCLE_SQUARE, NUMBERED_DECIMAL_NESTED"
+                }
+              },
+              "required": ["type"]
+            }
+          }
+        },
+        "required": ["doc_id", "operations"]
+      }
     }
   ]
 }
