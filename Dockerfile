@@ -113,8 +113,8 @@ ENTRYPOINT ["dumb-init", "--"]
 # Fix volume permissions as root, seed tenant folders, then drop to nodejs user for app
 # Claude CLI requires non-root user when using --dangerously-skip-permissions
 # Tenant seeding: copies static files from /app/tenant-seeds/ to /app/tenants/
-# - execution/ (tools) and directives/ (SOPs) are always synced from seeds
-# - life/, state/, history/ are preserved (user data)
+# - Static files (execution, operations, identity, knowledge, shared_tools) are always synced
+# - User data folders (life, state, history) are only seeded if they don't exist
 CMD ["sh", "-c", "\
   chown -R nodejs:nodejs /app/tenants 2>/dev/null; \
   for tenant in /app/tenant-seeds/*/; do \
@@ -129,6 +129,7 @@ CMD ["sh", "-c", "\
     cp -rf $tenant/knowledge $dest/ 2>/dev/null || true; \
     cp -rf $tenant/shared_tools $dest/ 2>/dev/null || true; \
     cp -rf $tenant/directives $dest/ 2>/dev/null || true; \
+    if [ ! -d \"$dest/life\" ]; then cp -rf $tenant/life $dest/ 2>/dev/null || true; fi; \
     chown -R nodejs:nodejs $dest; \
   done; \
   exec su-exec nodejs sh -c 'npx prisma migrate deploy && node dist/index.js'"]
