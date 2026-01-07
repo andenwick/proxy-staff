@@ -20,6 +20,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import pino from 'pino';
 import { config as loadDotenv } from 'dotenv';
+import { PrismaClient } from '@prisma/client';
+import { handleMemoryRead, handleMemoryWrite } from './memoryHandlers.js';
 
 // MCP servers must log to stderr (stdout is reserved for JSON-RPC protocol)
 // Use simple JSON logging to avoid pino-pretty transport issues in production
@@ -55,6 +57,54 @@ interface ToolManifest {
 // Configuration
 const TOOL_TIMEOUT_MS = 60000; // 60 seconds
 const TENANT_FOLDER = process.env.TENANT_FOLDER || process.cwd();
+const DATABASE_URL = process.env.DATABASE_URL;
+
+// Extract tenant_id from folder path (last directory component)
+const TENANT_ID = path.basename(TENANT_FOLDER);
+
+// Initialize Prisma client if DATABASE_URL is available
+let prisma: PrismaClient | null = null;
+if (DATABASE_URL) {
+  // Prisma reads DATABASE_URL from process.env automatically
+  prisma = new PrismaClient();
+  mcpLogger.info({ tenantId: TENANT_ID }, 'Prisma client initialized for memory tools');
+} else {
+  mcpLogger.warn('DATABASE_URL not set - memory tools will be unavailable');
+}
+
+// Built-in memory tools (not from manifest)
+const BUILTIN_TOOLS: ToolDefinition[] = [
+  {
+    name: 'memory_read',
+    description: 'Read persistent memory that survives across sessions. Types: identity, boundaries, patterns, relationships, questions, or any custom type.',
+    script: '', // Built-in, not a Python script
+    input_schema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', description: 'Memory type to read (e.g., "identity", "patterns", "boundaries")' },
+        path: { type: 'string', description: 'Optional dot-notation path to specific field (e.g., "preferences.timezone")' },
+        query: { type: 'string', description: 'Optional search term to find in data' },
+      },
+      required: ['type'],
+    },
+  },
+  {
+    name: 'memory_write',
+    description: 'Write to persistent memory that survives across sessions. Operations: set (replace), merge (deep merge), append (add to array), remove (remove from array).',
+    script: '', // Built-in, not a Python script
+    input_schema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', description: 'Memory type to update' },
+        operation: { type: 'string', enum: ['set', 'merge', 'append', 'remove'], description: 'set: replace value, merge: deep merge, append: add to array, remove: remove from array' },
+        path: { type: 'string', description: 'Optional dot-notation path for nested operations' },
+        value: { description: 'Value to set/merge/append or item to remove' },
+        markdown: { type: 'string', description: 'Optional markdown content to append' },
+      },
+      required: ['type', 'operation'],
+    },
+  },
+];
 
 /**
  * Load tenant-specific environment variables from .env file
@@ -203,8 +253,16 @@ async function main(): Promise<void> {
 
   // Handle list_tools request
   server.setRequestHandler(ListToolsRequestSchema, async () => {
+    // Combine built-in tools with manifest tools
+    const allTools = [
+      // Built-in memory tools (only if DATABASE_URL is available)
+      ...(prisma ? BUILTIN_TOOLS : []),
+      // Manifest tools
+      ...manifest.tools,
+    ];
+
     return {
-      tools: manifest.tools.map((tool) => ({
+      tools: allTools.map((tool) => ({
         name: tool.name,
         description: tool.description,
         inputSchema: tool.input_schema,
@@ -216,7 +274,25 @@ async function main(): Promise<void> {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
 
-    // Find tool definition
+    // Handle built-in memory tools first
+    if (name === 'memory_read' || name === 'memory_write') {
+      if (!prisma) {
+        return {
+          content: [{ type: 'text', text: 'Error: Memory tools unavailable - DATABASE_URL not configured' }],
+          isError: true,
+        };
+      }
+
+      mcpLogger.info({ toolName: name, tenantId: TENANT_ID }, 'Executing built-in memory tool');
+
+      if (name === 'memory_read') {
+        return handleMemoryRead(args || {}, TENANT_ID, prisma);
+      } else {
+        return handleMemoryWrite(args || {}, TENANT_ID, prisma);
+      }
+    }
+
+    // Find tool definition in manifest
     const tool = manifest.tools.find((t) => t.name === name);
     if (!tool) {
       return {
