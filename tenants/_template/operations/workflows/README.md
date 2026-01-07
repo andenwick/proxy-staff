@@ -33,19 +33,18 @@ This system separates probabilistic LLM work from deterministic execution to max
 
 ## Startup: Load Your Memory
 
-**IMPORTANT**: At the START of each conversation, read your memory files to recall context about the user:
+**IMPORTANT**: At the START of each conversation, use memory tools to recall context about the user:
 
-```bash
-echo '{"file": "identity"}' | python shared_tools/life_read.py
-echo '{"file": "patterns"}' | python shared_tools/life_read.py
-echo '{"file": "relationships/people"}' | python shared_tools/life_read.py
+```
+mcp__tools__memory_read(type: "identity")
+mcp__tools__memory_read(type: "patterns")
 ```
 
 This gives you continuity across conversations. Use what you learn to personalize responses.
 
 ## How to Work
 
-1. **First message?** Load your memory (identity, patterns, relationships)
+1. **First message?** Load your memory with `mcp__tools__memory_read`
 2. Receive user message
 3. If task matches a directive, load it with `read_directive`
 4. If task requires external action, use the appropriate tool
