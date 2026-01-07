@@ -124,6 +124,10 @@ CMD ["sh", "-c", "\
     echo \"Syncing tenant: $name\"; \
     cp -f $tenant/CLAUDE.md $dest/ 2>/dev/null || true; \
     cp -rf $tenant/execution $dest/ 2>/dev/null || true; \
+    cp -rf $tenant/operations $dest/ 2>/dev/null || true; \
+    cp -rf $tenant/identity $dest/ 2>/dev/null || true; \
+    cp -rf $tenant/knowledge $dest/ 2>/dev/null || true; \
+    cp -rf $tenant/shared_tools $dest/ 2>/dev/null || true; \
     cp -rf $tenant/directives $dest/ 2>/dev/null || true; \
     chown -R nodejs:nodejs $dest; \
   done; \
