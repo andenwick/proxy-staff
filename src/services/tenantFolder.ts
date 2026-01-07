@@ -722,13 +722,16 @@ Hard rules that govern agent behavior. These are non-negotiable.
     };
 
     // Write settings file
-    await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+    const settingsJson = JSON.stringify(settings, null, 2);
+    await fs.promises.writeFile(settingsPath, settingsJson, 'utf-8');
     logger.info({
       tenantId,
       settingsPath,
       hasDatabaseUrl: !!process.env.DATABASE_URL,
+      databaseUrlPrefix: process.env.DATABASE_URL?.substring(0, 30),
       mcpServerScript,
-      envKeys: Object.keys(settings.mcpServers.tools.env)
+      envKeys: Object.keys(settings.mcpServers.tools.env),
+      settingsContent: settingsJson.substring(0, 500)
     }, 'Generated .claude/settings.local.json');
   }
 
