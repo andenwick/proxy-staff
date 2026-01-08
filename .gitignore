@@ -52,6 +52,7 @@ __pycache__/
 # Tenant data (keep only templates and active tenants)
 tenants/*
 !tenants/_template/
+!tenants/_template/CLAUDE.md
 !tenants/template/
 !tenants/anden/
 
