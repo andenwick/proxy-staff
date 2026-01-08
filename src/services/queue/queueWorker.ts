@@ -266,7 +266,8 @@ async function processCliTaskJob(job: Job<LongTaskJob>): Promise<{ success: bool
 
     // Helper to spawn CLI with given session flag
     const spawnCli = (sessionFlag: string) => {
-      const args = ['-p', sessionFlag, cliSessionId, '--setting-sources', 'user,project,local', '--dangerously-skip-permissions'];
+      const config = getConfig();
+      const args = ['-p', '--model', config.claudeModel, sessionFlag, cliSessionId, '--setting-sources', 'user,project,local', '--dangerously-skip-permissions'];
 
       const proc = spawn('claude', args, {
         cwd: tenantFolder,

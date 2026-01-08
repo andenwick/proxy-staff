@@ -2,6 +2,7 @@ import { spawn, ChildProcess, execSync } from 'child_process';
 import { logger } from '../../utils/logger.js';
 import { generateCliSessionId } from '../claudeCli.js';
 import { getTenantFolderService } from '../index.js';
+import { getConfig } from '../../config/index.js';
 
 export interface CLISession {
   tenantId: string;
@@ -94,8 +95,10 @@ async function spawnCliProcess(
   cliSessionId: string,
   sessionFlag: '--resume' | '--session-id'
 ): Promise<ChildProcess> {
+  const config = getConfig();
   const args = [
     '-p',
+    '--model', config.claudeModel,
     '--input-format', 'stream-json',
     '--output-format', 'stream-json',
     '--verbose',

@@ -120,6 +120,15 @@ ENTRYPOINT ["dumb-init", "--"]
 # - If .established marker exists but relationships/ is missing, FAIL LOUDLY (data loss detected)
 CMD ["sh", "-c", "\
   chown -R nodejs:nodejs /app/tenants 2>/dev/null; \
+  \
+  # Set up Claude CLI credentials from volume (Max plan auth) \
+  if [ -f /app/tenants/.claude-credentials.json ]; then \
+    mkdir -p /home/nodejs/.claude; \
+    cp /app/tenants/.claude-credentials.json /home/nodejs/.claude/.credentials.json; \
+    chown -R nodejs:nodejs /home/nodejs/.claude; \
+    echo 'Claude CLI credentials restored from volume'; \
+  fi; \
+  \
   for tenant in /app/tenant-seeds/*/; do \
     name=$(basename $tenant); \
     dest=/app/tenants/$name; \
