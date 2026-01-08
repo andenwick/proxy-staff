@@ -151,16 +151,47 @@ function loadTenantEnv(): Record<string, string> {
 
 /**
  * Load tool manifest from tenant folder
+ * Supports modular tools (execution/tools/*.json) with fallback to single manifest
  */
 function loadToolManifest(): ToolManifest {
-  const manifestPath = path.join(TENANT_FOLDER, 'execution', 'tool_manifest.json');
+  const toolsDir = path.join(TENANT_FOLDER, 'execution', 'tools');
 
   mcpLogger.debug({
     TENANT_FOLDER,
-    manifestPath,
+    toolsDir,
     tenantFolderExists: fs.existsSync(TENANT_FOLDER),
-    executionFolderExists: fs.existsSync(path.join(TENANT_FOLDER, 'execution'))
+    toolsDirExists: fs.existsSync(toolsDir)
   }, 'Looking for tool manifest');
+
+  // Try modular tools first (execution/tools/*.json)
+  if (fs.existsSync(toolsDir)) {
+    const allTools: ToolDefinition[] = [];
+    const files = fs.readdirSync(toolsDir).filter(f => f.endsWith('.json'));
+
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(toolsDir, file), 'utf-8');
+        const manifest = JSON.parse(content);
+        if (manifest.tools && Array.isArray(manifest.tools)) {
+          allTools.push(...manifest.tools);
+        }
+      } catch (error) {
+        mcpLogger.warn({ file, error }, 'Failed to load modular tool manifest');
+      }
+    }
+
+    if (allTools.length > 0) {
+      mcpLogger.info({
+        toolCount: allTools.length,
+        files: files.length,
+        toolNames: allTools.map(t => t.name)
+      }, 'Loaded modular tools');
+      return { tools: allTools };
+    }
+  }
+
+  // Fall back to single manifest file
+  const manifestPath = path.join(TENANT_FOLDER, 'execution', 'tool_manifest.json');
 
   if (!fs.existsSync(manifestPath)) {
     mcpLogger.warn({ manifestPath }, 'Tool manifest not found');
@@ -170,7 +201,7 @@ function loadToolManifest(): ToolManifest {
   try {
     const content = fs.readFileSync(manifestPath, 'utf-8');
     const manifest = JSON.parse(content) as ToolManifest;
-    mcpLogger.info({ toolCount: manifest.tools.length, toolNames: manifest.tools.map(t => t.name) }, 'Loaded tools from manifest');
+    mcpLogger.info({ toolCount: manifest.tools.length, toolNames: manifest.tools.map(t => t.name) }, 'Loaded tools from single manifest');
     return manifest;
   } catch (error) {
     mcpLogger.error({ error }, 'Failed to parse tool manifest');
