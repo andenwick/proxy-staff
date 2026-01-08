@@ -355,7 +355,7 @@ export class ReplyProcessingService {
     prospect: ProspectData,
     reply: Reply,
     analysis: ReplyAnalysis,
-    campaign?: CampaignConfig
+    _campaign?: CampaignConfig
   ): { subject: string; body: string; reasoning: string } {
     const firstName = prospect.frontmatter.name.split(' ')[0];
     const company = prospect.frontmatter.company || 'your company';

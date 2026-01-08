@@ -1150,7 +1150,6 @@ Last updated: ${now}
   async updateMetrics(tenantId: string, campaignName: string): Promise<void> {
     const campaignFolder = this.getCampaignFolder(tenantId, campaignName);
     const configPath = path.join(campaignFolder, 'config.md');
-    const targetsPath = path.join(campaignFolder, 'targets.md');
     const metricsPath = path.join(campaignFolder, 'metrics.md');
 
     const targetsData = await this.getTargets(tenantId, campaignName);
