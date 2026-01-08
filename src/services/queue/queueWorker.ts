@@ -269,6 +269,7 @@ async function processCliTaskJob(job: Job<LongTaskJob>): Promise<{ success: bool
       const config = getConfig();
       const args = ['-p', '--model', config.claudeModel, sessionFlag, cliSessionId, '--setting-sources', 'user,project,local', '--dangerously-skip-permissions'];
 
+      // HOME must be set explicitly for Claude CLI to find credentials on Linux containers
       const proc = spawn('claude', args, {
         cwd: tenantFolder,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -278,6 +279,7 @@ async function processCliTaskJob(job: Job<LongTaskJob>): Promise<{ success: bool
           TENANT_ID: tenantId,
           SENDER_PHONE: senderPhone,
           API_BASE_URL: process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3000}`,
+          HOME: process.env.HOME || '/home/nodejs',
         },
       });
 

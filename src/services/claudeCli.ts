@@ -279,12 +279,14 @@ export class ClaudeCliService {
       );
 
       // Use 'claude' with shell: true - Windows cmd.exe resolves .cmd extension automatically
+      // HOME must be set explicitly for Claude CLI to find credentials on Linux containers
+      // (su-exec doesn't set HOME, so spawned processes inherit root's HOME or no HOME)
       const cliProcess = spawn('claude', args, {
         cwd: tenantFolder,
         signal: abortController.signal,
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: true,
-        env: { ...process.env, ...toolEnv },
+        env: { ...process.env, ...toolEnv, HOME: process.env.HOME || '/home/nodejs' },
       });
 
       // Track active process for cleanup on shutdown
