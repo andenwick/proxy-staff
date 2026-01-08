@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger as baseLogger } from '../utils/logger.js';
+import { getCampaignScheduler } from '../services/index.js';
 
 const logger = baseLogger.child({ module: 'admin-routes' });
 
@@ -201,6 +202,58 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(500).send({
         success: false,
         message: 'Failed to read credentials',
+        tenantId,
+      });
+    }
+  });
+
+  /**
+   * Trigger campaign processing for a tenant
+   *
+   * POST /admin/tenants/:tenantId/campaigns/trigger
+   *
+   * Manually triggers the campaign scheduler for a specific tenant.
+   */
+  fastify.post<{
+    Params: { tenantId: string };
+  }>('/admin/tenants/:tenantId/campaigns/trigger', async (request, reply) => {
+    const { tenantId } = request.params;
+
+    // Validate tenant ID
+    if (!/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
+      return reply.status(400).send({
+        success: false,
+        message: 'Invalid tenant ID format',
+        tenantId,
+      });
+    }
+
+    const tenantFolder = path.join(process.cwd(), 'tenants', tenantId);
+    if (!fs.existsSync(tenantFolder)) {
+      return reply.status(404).send({
+        success: false,
+        message: 'Tenant folder not found',
+        tenantId,
+      });
+    }
+
+    try {
+      const scheduler = getCampaignScheduler();
+      logger.info({ tenantId }, 'Manually triggering campaign processing');
+
+      // Process campaigns for this tenant
+      await scheduler.processTenantCampaigns(tenantId);
+
+      return reply.send({
+        success: true,
+        message: 'Campaign processing triggered',
+        tenantId,
+      });
+    } catch (error) {
+      logger.error({ tenantId, error }, 'Failed to trigger campaign processing');
+      return reply.status(500).send({
+        success: false,
+        message: `Failed to trigger campaign processing: ${error instanceof Error ? error.message : 'Unknown error'}`,
         tenantId,
       });
     }
