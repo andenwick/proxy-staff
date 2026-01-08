@@ -82,7 +82,7 @@ export function loadConfig(): Config {
     credentialsEncryptionKey: getEnvVar('CREDENTIALS_ENCRYPTION_KEY'),
     tavilyApiKey: process.env.TAVILY_API_KEY,
     // Claude CLI model: defaults to Opus 4.5
-    claudeModel: process.env.CLAUDE_MODEL || 'claude-opus-4-5-20250514',
+    claudeModel: process.env.CLAUDE_MODEL || 'claude-opus-4-5',
     // Session timeout: defaults to 24 hours if not specified
     sessionTimeoutHours: parseInt(process.env.SESSION_TIMEOUT_HOURS || '24', 10),
     // Async task queue configuration
