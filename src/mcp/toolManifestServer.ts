@@ -21,6 +21,8 @@ import * as path from 'path';
 import pino from 'pino';
 import { config as loadDotenv } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 import { handleMemoryRead, handleMemoryWrite } from './memoryHandlers.js';
 
 // MCP servers must log to stderr (stdout is reserved for JSON-RPC protocol)
@@ -63,7 +65,10 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const TENANT_ID = path.basename(TENANT_FOLDER);
 
 // Initialize Prisma client if DATABASE_URL is available
+// Must use adapter pattern since project is configured with @prisma/adapter-pg
 let prisma: PrismaClient | null = null;
+let pool: pg.Pool | null = null;
+
 mcpLogger.info({
   DATABASE_URL_SET: !!DATABASE_URL,
   TENANT_FOLDER,
@@ -72,9 +77,14 @@ mcpLogger.info({
 }, 'MCP Server environment check');
 
 if (DATABASE_URL) {
-  // Prisma reads DATABASE_URL from process.env automatically
-  prisma = new PrismaClient();
-  mcpLogger.info({ tenantId: TENANT_ID }, 'Prisma client initialized for memory tools');
+  try {
+    pool = new pg.Pool({ connectionString: DATABASE_URL });
+    const adapter = new PrismaPg(pool);
+    prisma = new PrismaClient({ adapter });
+    mcpLogger.info({ tenantId: TENANT_ID }, 'Prisma client initialized with pg adapter for memory tools');
+  } catch (error) {
+    mcpLogger.error({ error }, 'Failed to initialize Prisma client');
+  }
 } else {
   mcpLogger.warn('DATABASE_URL not set - memory tools will be unavailable');
 }
