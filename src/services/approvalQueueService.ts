@@ -24,6 +24,9 @@ export interface QueuedAction {
   queued_at: string;
   expires_at: string;
   status: ApprovalStatus;
+  // Notification tracking fields
+  notification_sent_at?: string;
+  notification_message_id?: string;
 }
 
 export interface ApprovalHistory {
@@ -167,6 +170,46 @@ export class ApprovalQueueService {
   async getPendingCount(tenantId: string): Promise<number> {
     const pending = await this.listPendingActions(tenantId);
     return pending.length;
+  }
+
+  /**
+   * Get pending actions that need notification (haven't been notified yet).
+   */
+  async getActionsNeedingNotification(tenantId: string): Promise<QueuedAction[]> {
+    const data = await this.loadApprovalsData(tenantId);
+    const now = new Date();
+
+    return data.pending.filter((action) => {
+      return (
+        action.status === 'pending' &&
+        new Date(action.expires_at) > now &&
+        !action.notification_sent_at
+      );
+    });
+  }
+
+  /**
+   * Update an action with notification tracking info.
+   */
+  async updateNotificationInfo(
+    tenantId: string,
+    actionId: string,
+    messageId: string
+  ): Promise<void> {
+    const data = await this.loadApprovalsData(tenantId);
+
+    const action = data.pending.find((a) => a.id === actionId);
+    if (!action) {
+      logger.warn({ tenantId, actionId }, 'Action not found for notification update');
+      return;
+    }
+
+    action.notification_sent_at = new Date().toISOString();
+    action.notification_message_id = messageId;
+
+    await this.saveApprovalsData(tenantId, data);
+
+    logger.debug({ tenantId, actionId, messageId }, 'Action notification info updated');
   }
 
   /**
@@ -360,6 +403,34 @@ export class ApprovalQueueService {
   async getAction(tenantId: string, actionId: string): Promise<QueuedAction | null> {
     const data = await this.loadApprovalsData(tenantId);
     return data.pending.find((a) => a.id === actionId) ?? null;
+  }
+
+  /**
+   * Find action by target name (for matching Telegram replies).
+   */
+  async findActionByTargetName(tenantId: string, targetName: string): Promise<QueuedAction | null> {
+    const data = await this.loadApprovalsData(tenantId);
+    const lowerTargetName = targetName.toLowerCase();
+
+    return (
+      data.pending.find(
+        (a) => a.status === 'pending' && a.target_name.toLowerCase().includes(lowerTargetName)
+      ) ?? null
+    );
+  }
+
+  /**
+   * Get the most recent pending action (for simple reply matching).
+   */
+  async getMostRecentPendingAction(tenantId: string): Promise<QueuedAction | null> {
+    const data = await this.loadApprovalsData(tenantId);
+    const now = new Date();
+
+    const pendingActions = data.pending
+      .filter((a) => a.status === 'pending' && new Date(a.expires_at) > now)
+      .sort((a, b) => new Date(b.queued_at).getTime() - new Date(a.queued_at).getTime());
+
+    return pendingActions[0] ?? null;
   }
 
   /**
