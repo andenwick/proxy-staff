@@ -112,9 +112,12 @@ ENTRYPOINT ["dumb-init", "--"]
 
 # Fix volume permissions as root, seed tenant folders, then drop to nodejs user for app
 # Claude CLI requires non-root user when using --dangerously-skip-permissions
-# Tenant seeding: copies static files from /app/tenant-seeds/ to /app/tenants/
-# - Static files (execution, operations, identity, knowledge, shared_tools) are always synced
-# - User data folders (life, state, history) are only seeded if they don't exist
+#
+# Tenant seeding logic:
+# - Code folders (execution, identity, knowledge, shared_tools, directives) are always synced
+# - Operations: only sync workflows/, campaigns/ structure - NEVER overwrite state/
+# - User data (relationships/, timeline/, life/, state/) are NEVER overwritten
+# - If .established marker exists but relationships/ is missing, FAIL LOUDLY (data loss detected)
 CMD ["sh", "-c", "\
   chown -R nodejs:nodejs /app/tenants 2>/dev/null; \
   for tenant in /app/tenant-seeds/*/; do \
@@ -122,14 +125,53 @@ CMD ["sh", "-c", "\
     dest=/app/tenants/$name; \
     mkdir -p $dest; \
     echo \"Syncing tenant: $name\"; \
+    \
+    # Check for established tenant with missing data (potential volume issue) \
+    if [ -f \"$dest/.established\" ]; then \
+      if [ ! -d \"$dest/relationships\" ]; then \
+        echo \"FATAL: Established tenant $name is missing relationships/ folder!\"; \
+        echo \"This indicates volume data loss. Refusing to start.\"; \
+        exit 1; \
+      fi; \
+      if [ ! -d \"$dest/state\" ]; then \
+        echo \"FATAL: Established tenant $name is missing state/ folder!\"; \
+        echo \"This indicates volume data loss. Refusing to start.\"; \
+        exit 1; \
+      fi; \
+    fi; \
+    \
+    # Sync code folders (safe to overwrite) \
     cp -f $tenant/CLAUDE.md $dest/ 2>/dev/null || true; \
     cp -rf $tenant/execution $dest/ 2>/dev/null || true; \
-    cp -rf $tenant/operations $dest/ 2>/dev/null || true; \
     cp -rf $tenant/identity $dest/ 2>/dev/null || true; \
     cp -rf $tenant/knowledge $dest/ 2>/dev/null || true; \
     cp -rf $tenant/shared_tools $dest/ 2>/dev/null || true; \
     cp -rf $tenant/directives $dest/ 2>/dev/null || true; \
-    if [ ! -d \"$dest/life\" ]; then cp -rf $tenant/life $dest/ 2>/dev/null || true; fi; \
+    \
+    # Operations: sync workflows but preserve state/ \
+    mkdir -p $dest/operations; \
+    cp -rf $tenant/operations/workflows $dest/operations/ 2>/dev/null || true; \
+    cp -rf $tenant/operations/schedules $dest/operations/ 2>/dev/null || true; \
+    # Only seed campaigns if folder doesn't exist (never overwrite campaign data) \
+    if [ ! -d \"$dest/operations/campaigns\" ]; then \
+      cp -rf $tenant/operations/campaigns $dest/operations/ 2>/dev/null || true; \
+    fi; \
+    # Only seed root state folder if it doesn't exist \
+    if [ ! -d \"$dest/state\" ]; then \
+      mkdir -p $dest/state; \
+    fi; \
+    \
+    # User data folders: only seed if they don't exist \
+    if [ ! -d \"$dest/relationships\" ]; then \
+      cp -rf $tenant/relationships $dest/ 2>/dev/null || true; \
+    fi; \
+    if [ ! -d \"$dest/timeline\" ]; then \
+      cp -rf $tenant/timeline $dest/ 2>/dev/null || true; \
+    fi; \
+    if [ ! -d \"$dest/life\" ]; then \
+      cp -rf $tenant/life $dest/ 2>/dev/null || true; \
+    fi; \
+    \
     chown -R nodejs:nodejs $dest; \
   done; \
   exec su-exec nodejs sh -c 'npx prisma migrate deploy && node dist/index.js'"]
