@@ -1,0 +1,21 @@
+{
+  "category": "utility",
+  "description": "General utility tools",
+  "tools": [
+    {
+      "name": "example_tool",
+      "description": "An example tool that echoes input",
+      "script": "example_tool.py",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Message to echo back"
+          }
+        },
+        "required": ["message"]
+      }
+    }
+  ]
+}
