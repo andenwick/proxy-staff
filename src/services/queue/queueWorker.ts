@@ -279,7 +279,7 @@ async function processCliTaskJob(job: Job<LongTaskJob>): Promise<{ success: bool
           TENANT_ID: tenantId,
           SENDER_PHONE: senderPhone,
           API_BASE_URL: process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3000}`,
-          HOME: process.env.HOME || '/home/nodejs',
+          HOME: '/home/nodejs',
         },
       });
 
