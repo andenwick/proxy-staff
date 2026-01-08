@@ -328,7 +328,7 @@ export class ApprovalQueueService {
     actionId: string,
     success: boolean,
     error?: string,
-    messageId?: string
+    _messageId?: string
   ): Promise<void> {
     const data = await this.loadApprovalsData(tenantId);
     const now = new Date().toISOString();

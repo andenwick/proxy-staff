@@ -3,14 +3,14 @@ import * as path from 'path';
 import cron from 'node-cron';
 import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger.js';
-import { CampaignService, Campaign, Target, TargetReference, CampaignStage } from './campaignService.js';
+import { CampaignService, Campaign, Target, CampaignStage } from './campaignService.js';
 import { ApprovalQueueService, ActionType, QueuedAction } from './approvalQueueService.js';
 import { UnsubscribeService } from './unsubscribeService.js';
 import { TimelineService } from './timelineService.js';
 import { MessageProcessor } from './messageProcessor.js';
 import { ReplyProcessingService, Reply } from './replyProcessingService.js';
 import { ProspectService, ProspectData } from './prospectService.js';
-import { ResponseTimingService, ScheduledSend } from './responseTimingService.js';
+import { ResponseTimingService } from './responseTimingService.js';
 
 /**
  * Pipeline health report for a campaign.
@@ -837,13 +837,8 @@ Best regards`;
   ): Promise<{ subject?: string; body: string; reasoning: string } | null> {
     // If MessageProcessor is available, use AI to generate message
     if (this.messageProcessor) {
-      try {
-        const prompt = this.buildAIPrompt(campaign, target, channel);
-        // Note: This would use Claude to generate the message
-        // For now, we'll use a template approach
-      } catch (error) {
-        logger.warn({ tenantId, error }, 'AI message generation failed, using template');
-      }
+      // TODO: Use Claude to generate the message with buildAIPrompt()
+      // For now, we'll use a template approach
     }
 
     // Template-based fallback
