@@ -3,6 +3,7 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { logger } from '../utils/logger.js';
 import { validateTenantId } from '../utils/validation.js';
+import { ProspectService, ProspectData, ProspectStage } from './prospectService.js';
 
 /**
  * Campaign stages in order of progression.
@@ -19,6 +20,13 @@ export type CampaignStage =
 
 export type CampaignStatus = 'draft' | 'active' | 'paused' | 'completed';
 
+/**
+ * Response mode determines how events are processed.
+ * - 'delayed': Log only on webhook, scheduler processes with timing delays (for sales)
+ * - 'immediate': Process immediately on webhook (for customer service)
+ */
+export type ResponseMode = 'delayed' | 'immediate';
+
 export interface CampaignChannelConfig {
   enabled: boolean;
   provider?: string;
@@ -30,7 +38,28 @@ export interface CampaignSettings {
   max_touches_per_target: number;
   require_approval: boolean;
   approval_mode: 'batch' | 'individual';
+  // Response timing configuration
+  response_delay_min_hours?: number;
+  response_delay_max_hours?: number;
+  business_hours_only?: boolean;
+  business_hours_start?: string; // "HH:MM" format
+  business_hours_end?: string; // "HH:MM" format
+  business_hours_timezone?: string;
+  response_mode?: ResponseMode;
 }
+
+/**
+ * Default timing settings for campaigns.
+ */
+export const DEFAULT_CAMPAIGN_TIMING = {
+  response_delay_min_hours: 1,
+  response_delay_max_hours: 4,
+  business_hours_only: true,
+  business_hours_start: '09:00',
+  business_hours_end: '17:00',
+  business_hours_timezone: 'America/Denver',
+  response_mode: 'delayed' as ResponseMode,
+};
 
 export interface CampaignAudience {
   description: string;
@@ -86,6 +115,10 @@ export interface TargetNextAction {
   reason: string;
 }
 
+/**
+ * Legacy Target interface (inline data format).
+ * Used for backward compatibility with existing campaign data.
+ */
 export interface Target {
   id: string;
   stage: CampaignStage;
@@ -103,10 +136,41 @@ export interface Target {
   stage_changed_at: string;
 }
 
+/**
+ * New TargetReference interface (prospect slug reference format).
+ * Stores only the reference to a prospect file plus campaign-specific metadata.
+ */
+export interface TargetReference {
+  id: string;
+  prospect_slug: string;
+  added_at: string;
+  last_touch_at: string | null;
+  touch_count: number;
+  campaign_stage: CampaignStage;
+  unsubscribed: boolean;
+}
+
+/**
+ * Combined target and prospect context for processing.
+ */
+export interface TargetWithContext {
+  target: TargetReference;
+  prospect: ProspectData | null;
+}
+
 export interface TargetsData {
   version: number;
   lastUpdated: string;
   targets: Target[];
+}
+
+/**
+ * New targets data format with references.
+ */
+export interface TargetReferencesData {
+  version: number;
+  lastUpdated: string;
+  target_references: TargetReference[];
 }
 
 export interface Campaign {
@@ -195,6 +259,35 @@ export class CampaignService {
   }
 
   /**
+   * Get timing config from campaign settings with defaults.
+   */
+  getTimingConfig(settings: CampaignSettings): {
+    response_delay_min_hours: number;
+    response_delay_max_hours: number;
+    business_hours_only: boolean;
+    business_hours_start: string;
+    business_hours_end: string;
+    business_hours_timezone: string;
+    response_mode: ResponseMode;
+  } {
+    return {
+      response_delay_min_hours:
+        settings.response_delay_min_hours ?? DEFAULT_CAMPAIGN_TIMING.response_delay_min_hours,
+      response_delay_max_hours:
+        settings.response_delay_max_hours ?? DEFAULT_CAMPAIGN_TIMING.response_delay_max_hours,
+      business_hours_only:
+        settings.business_hours_only ?? DEFAULT_CAMPAIGN_TIMING.business_hours_only,
+      business_hours_start:
+        settings.business_hours_start ?? DEFAULT_CAMPAIGN_TIMING.business_hours_start,
+      business_hours_end:
+        settings.business_hours_end ?? DEFAULT_CAMPAIGN_TIMING.business_hours_end,
+      business_hours_timezone:
+        settings.business_hours_timezone ?? DEFAULT_CAMPAIGN_TIMING.business_hours_timezone,
+      response_mode: settings.response_mode ?? DEFAULT_CAMPAIGN_TIMING.response_mode,
+    };
+  }
+
+  /**
    * Create a new campaign.
    */
   async createCampaign(
@@ -245,6 +338,14 @@ export class CampaignService {
         max_touches_per_target: 5,
         require_approval: true,
         approval_mode: 'batch',
+        // Timing settings with defaults
+        response_delay_min_hours: DEFAULT_CAMPAIGN_TIMING.response_delay_min_hours,
+        response_delay_max_hours: DEFAULT_CAMPAIGN_TIMING.response_delay_max_hours,
+        business_hours_only: DEFAULT_CAMPAIGN_TIMING.business_hours_only,
+        business_hours_start: DEFAULT_CAMPAIGN_TIMING.business_hours_start,
+        business_hours_end: DEFAULT_CAMPAIGN_TIMING.business_hours_end,
+        business_hours_timezone: DEFAULT_CAMPAIGN_TIMING.business_hours_timezone,
+        response_mode: DEFAULT_CAMPAIGN_TIMING.response_mode,
       },
       metrics_snapshot: {
         total_targets: 0,
@@ -280,11 +381,11 @@ ${goal}
       configMarkdown
     );
 
-    // Create targets.md
-    const targets: TargetsData = {
-      version: 1,
+    // Create targets.md with new reference format
+    const targets: TargetReferencesData = {
+      version: 2, // Version 2 uses target_references
       lastUpdated: now,
-      targets: [],
+      target_references: [],
     };
 
     const targetsMarkdown = `# Campaign Targets
@@ -425,16 +526,24 @@ Last updated: ${now}
         path.join(campaignFolder, 'config.md')
       );
 
-      const { data: targets } = await this.readCampaignFile<TargetsData>(
-        path.join(campaignFolder, 'targets.md')
-      );
+      // Read targets and get count (handle both old and new format)
+      const targetsPath = path.join(campaignFolder, 'targets.md');
+      const content = await fs.promises.readFile(targetsPath, 'utf-8');
+      const { data: targetsData } = this.parseFrontmatter<Record<string, unknown>>(content);
+
+      let targetsCount = 0;
+      if (targetsData.target_references) {
+        targetsCount = (targetsData.target_references as TargetReference[]).length;
+      } else if (targetsData.targets) {
+        targetsCount = (targetsData.targets as Target[]).length;
+      }
 
       return {
         id: config.id,
         name: config.name,
         status: config.status,
         config,
-        targetsCount: targets.targets.length,
+        targetsCount,
       };
     } catch (error) {
       logger.error({ tenantId, campaignName, error }, 'Failed to read campaign');
@@ -529,7 +638,296 @@ Last updated: ${now}
   }
 
   /**
-   * Add a target to a campaign.
+   * Add a target to a campaign using prospect slug (NEW method).
+   * Creates a reference to the prospect file instead of storing inline data.
+   */
+  async addTargetByProspectSlug(
+    tenantId: string,
+    campaignName: string,
+    prospectSlug: string
+  ): Promise<TargetReference> {
+    const campaignFolder = this.getCampaignFolder(tenantId, campaignName);
+    const targetsPath = path.join(campaignFolder, 'targets.md');
+
+    if (!fs.existsSync(targetsPath)) {
+      throw new Error(`Campaign "${campaignName}" not found`);
+    }
+
+    const content = await fs.promises.readFile(targetsPath, 'utf-8');
+    const { data: rawData, markdown } = this.parseFrontmatter<Record<string, unknown>>(content);
+
+    const now = new Date().toISOString();
+
+    // Create new target reference
+    const newReference: TargetReference = {
+      id: randomUUID(),
+      prospect_slug: prospectSlug,
+      added_at: now,
+      last_touch_at: null,
+      touch_count: 0,
+      campaign_stage: 'identified',
+      unsubscribed: false,
+    };
+
+    // Handle both old and new format
+    let targetReferences: TargetReference[];
+    if (rawData.target_references) {
+      targetReferences = rawData.target_references as TargetReference[];
+    } else {
+      // Initialize new format
+      targetReferences = [];
+    }
+
+    targetReferences.push(newReference);
+
+    const updatedData: TargetReferencesData = {
+      version: 2,
+      lastUpdated: now,
+      target_references: targetReferences,
+    };
+
+    await this.writeCampaignFile(targetsPath, updatedData, markdown);
+
+    // Update metrics
+    await this.updateMetricsFromReferences(tenantId, campaignName);
+
+    // Log event
+    await this.logCampaignEvent(
+      tenantId,
+      campaignName,
+      'TARGET_ADDED',
+      `Added target reference: ${prospectSlug}`
+    );
+
+    logger.debug({ tenantId, campaignName, prospectSlug, targetId: newReference.id }, 'Target reference added');
+
+    return newReference;
+  }
+
+  /**
+   * Get target references for a campaign (NEW method).
+   */
+  async getTargetReferences(tenantId: string, campaignName: string): Promise<TargetReference[]> {
+    const campaignFolder = this.getCampaignFolder(tenantId, campaignName);
+    const targetsPath = path.join(campaignFolder, 'targets.md');
+
+    if (!fs.existsSync(targetsPath)) {
+      return [];
+    }
+
+    const content = await fs.promises.readFile(targetsPath, 'utf-8');
+    const { data: rawData } = this.parseFrontmatter<Record<string, unknown>>(content);
+
+    if (rawData.target_references) {
+      return rawData.target_references as TargetReference[];
+    }
+
+    return [];
+  }
+
+  /**
+   * Get a target with full prospect context (NEW method).
+   * Loads both the target reference and the associated prospect file.
+   */
+  async getTargetWithContext(
+    tenantId: string,
+    campaignName: string,
+    targetId: string,
+    prospectService?: ProspectService
+  ): Promise<TargetWithContext> {
+    const references = await this.getTargetReferences(tenantId, campaignName);
+    const target = references.find(r => r.id === targetId);
+
+    if (!target) {
+      throw new Error(`Target "${targetId}" not found`);
+    }
+
+    let prospect: ProspectData | null = null;
+    if (prospectService) {
+      prospect = await prospectService.readProspect(tenantId, target.prospect_slug);
+    } else {
+      // Create a temporary service if not provided
+      const tempService = new ProspectService(this.projectRoot);
+      prospect = await tempService.readProspect(tenantId, target.prospect_slug);
+    }
+
+    return { target, prospect };
+  }
+
+  /**
+   * Update target stage and sync to prospect file (NEW method).
+   */
+  async updateTargetStageWithSync(
+    tenantId: string,
+    campaignName: string,
+    targetId: string,
+    newStage: CampaignStage,
+    prospectService: ProspectService
+  ): Promise<void> {
+    const campaignFolder = this.getCampaignFolder(tenantId, campaignName);
+    const targetsPath = path.join(campaignFolder, 'targets.md');
+
+    const content = await fs.promises.readFile(targetsPath, 'utf-8');
+    const { data: rawData, markdown } = this.parseFrontmatter<Record<string, unknown>>(content);
+
+    if (!rawData.target_references) {
+      throw new Error('Campaign uses old format - cannot sync stages');
+    }
+
+    const references = rawData.target_references as TargetReference[];
+    const target = references.find(r => r.id === targetId);
+
+    if (!target) {
+      throw new Error(`Target "${targetId}" not found`);
+    }
+
+    const oldStage = target.campaign_stage;
+    target.campaign_stage = newStage;
+
+    const now = new Date().toISOString();
+
+    const updatedData: TargetReferencesData = {
+      version: 2,
+      lastUpdated: now,
+      target_references: references,
+    };
+
+    await this.writeCampaignFile(targetsPath, updatedData, markdown);
+
+    // Sync stage to prospect file
+    await prospectService.updateProspect(tenantId, target.prospect_slug, {
+      stage: newStage as ProspectStage,
+    });
+
+    // Update metrics
+    await this.updateMetricsFromReferences(tenantId, campaignName);
+
+    // Log event
+    await this.logCampaignEvent(
+      tenantId,
+      campaignName,
+      'STAGE_CHANGE',
+      `${target.prospect_slug}: ${oldStage} → ${newStage}`
+    );
+
+    logger.debug({ tenantId, campaignName, targetId, oldStage, newStage }, 'Target stage updated and synced');
+  }
+
+  /**
+   * Remove a target from a campaign (preserves prospect file).
+   */
+  async removeTarget(tenantId: string, campaignName: string, targetId: string): Promise<void> {
+    const campaignFolder = this.getCampaignFolder(tenantId, campaignName);
+    const targetsPath = path.join(campaignFolder, 'targets.md');
+
+    const content = await fs.promises.readFile(targetsPath, 'utf-8');
+    const { data: rawData, markdown } = this.parseFrontmatter<Record<string, unknown>>(content);
+
+    if (!rawData.target_references) {
+      throw new Error('Campaign uses old format - use legacy methods');
+    }
+
+    const references = rawData.target_references as TargetReference[];
+    const targetIndex = references.findIndex(r => r.id === targetId);
+
+    if (targetIndex === -1) {
+      throw new Error(`Target "${targetId}" not found`);
+    }
+
+    const removedTarget = references[targetIndex];
+    references.splice(targetIndex, 1);
+
+    const now = new Date().toISOString();
+
+    const updatedData: TargetReferencesData = {
+      version: 2,
+      lastUpdated: now,
+      target_references: references,
+    };
+
+    await this.writeCampaignFile(targetsPath, updatedData, markdown);
+
+    // Update metrics
+    await this.updateMetricsFromReferences(tenantId, campaignName);
+
+    // Log event
+    await this.logCampaignEvent(
+      tenantId,
+      campaignName,
+      'TARGET_REMOVED',
+      `Removed target reference: ${removedTarget.prospect_slug}`
+    );
+
+    logger.debug({ tenantId, campaignName, targetId }, 'Target removed from campaign');
+  }
+
+  /**
+   * Update metrics from target references.
+   */
+  private async updateMetricsFromReferences(tenantId: string, campaignName: string): Promise<void> {
+    const campaignFolder = this.getCampaignFolder(tenantId, campaignName);
+    const configPath = path.join(campaignFolder, 'config.md');
+    const metricsPath = path.join(campaignFolder, 'metrics.md');
+
+    const references = await this.getTargetReferences(tenantId, campaignName);
+
+    const { data: config, markdown: configMarkdown } =
+      await this.readCampaignFile<CampaignConfig>(configPath);
+    const { data: metrics, markdown: metricsMarkdown } =
+      await this.readCampaignFile<Record<string, unknown>>(metricsPath);
+
+    // Calculate stage counts
+    const byStage: Record<CampaignStage, number> = {
+      identified: 0,
+      researched: 0,
+      contacted: 0,
+      replied: 0,
+      qualified: 0,
+      booked: 0,
+      won: 0,
+      lost: 0,
+    };
+
+    let totalTouches = 0;
+    let totalReplies = 0;
+
+    for (const ref of references) {
+      byStage[ref.campaign_stage]++;
+      totalTouches += ref.touch_count;
+      if (ref.campaign_stage === 'replied' || ref.campaign_stage === 'qualified' ||
+          ref.campaign_stage === 'booked' || ref.campaign_stage === 'won') {
+        totalReplies++;
+      }
+    }
+
+    // Update config metrics snapshot
+    config.metrics_snapshot = {
+      total_targets: references.length,
+      by_stage: byStage,
+    };
+    config.lastUpdated = new Date().toISOString();
+    await this.writeCampaignFile(configPath, config, configMarkdown);
+
+    // Update metrics file
+    (metrics as Record<string, unknown>).summary = {
+      total_targets: references.length,
+      total_touches: totalTouches,
+      total_replies: totalReplies,
+      meetings_booked: byStage.booked + byStage.won,
+      deals_won: byStage.won,
+      deals_lost: byStage.lost,
+    };
+    (metrics as Record<string, unknown>).by_stage = byStage;
+    (metrics as Record<string, unknown>).lastUpdated = config.lastUpdated;
+
+    await this.writeCampaignFile(metricsPath, metrics, metricsMarkdown);
+  }
+
+  // ============ LEGACY METHODS (for backward compatibility) ============
+
+  /**
+   * Add a target to a campaign (LEGACY - inline data).
+   * Kept for backward compatibility with old campaigns.
    */
   async addTarget(
     tenantId: string,
@@ -585,7 +983,7 @@ Last updated: ${now}
   }
 
   /**
-   * Update a target's stage.
+   * Update a target's stage (LEGACY).
    */
   async updateTargetStage(
     tenantId: string,
@@ -625,7 +1023,7 @@ Last updated: ${now}
   }
 
   /**
-   * Record a touch (outreach attempt) for a target.
+   * Record a touch (outreach attempt) for a target (LEGACY).
    */
   async recordTouch(
     tenantId: string,
@@ -666,7 +1064,7 @@ Last updated: ${now}
   }
 
   /**
-   * Get all targets for a campaign.
+   * Get all targets for a campaign (LEGACY - reads old format).
    */
   async getTargets(tenantId: string, campaignName: string): Promise<TargetsData | null> {
     const campaignFolder = this.getCampaignFolder(tenantId, campaignName);
@@ -676,12 +1074,28 @@ Last updated: ${now}
       return null;
     }
 
-    const { data } = await this.readCampaignFile<TargetsData>(targetsPath);
-    return data;
+    const content = await fs.promises.readFile(targetsPath, 'utf-8');
+    const { data: rawData } = this.parseFrontmatter<Record<string, unknown>>(content);
+
+    // Handle old format
+    if (rawData.targets) {
+      return {
+        version: (rawData.version as number) || 1,
+        lastUpdated: (rawData.lastUpdated as string) || new Date().toISOString(),
+        targets: rawData.targets as Target[],
+      };
+    }
+
+    // New format - return empty targets for backward compatibility
+    return {
+      version: 1,
+      lastUpdated: (rawData.lastUpdated as string) || new Date().toISOString(),
+      targets: [],
+    };
   }
 
   /**
-   * Get targets that need processing (active campaign, not unsubscribed, needs action).
+   * Get targets that need processing (LEGACY).
    */
   async getTargetsForProcessing(tenantId: string, campaignName: string): Promise<Target[]> {
     const campaignFolder = this.getCampaignFolder(tenantId, campaignName);
@@ -699,7 +1113,10 @@ Last updated: ${now}
       return [];
     }
 
-    const { data: targetsData } = await this.readCampaignFile<TargetsData>(targetsPath);
+    const targetsData = await this.getTargets(tenantId, campaignName);
+    if (!targetsData) {
+      return [];
+    }
 
     const now = new Date();
     const minDaysBetween = config.settings.min_days_between_touches;
@@ -728,7 +1145,7 @@ Last updated: ${now}
   }
 
   /**
-   * Update campaign metrics.
+   * Update campaign metrics (LEGACY).
    */
   async updateMetrics(tenantId: string, campaignName: string): Promise<void> {
     const campaignFolder = this.getCampaignFolder(tenantId, campaignName);
@@ -736,7 +1153,11 @@ Last updated: ${now}
     const targetsPath = path.join(campaignFolder, 'targets.md');
     const metricsPath = path.join(campaignFolder, 'metrics.md');
 
-    const { data: targetsData } = await this.readCampaignFile<TargetsData>(targetsPath);
+    const targetsData = await this.getTargets(tenantId, campaignName);
+    if (!targetsData) {
+      return;
+    }
+
     const { data: config, markdown: configMarkdown } =
       await this.readCampaignFile<CampaignConfig>(configPath);
     const { data: metrics, markdown: metricsMarkdown } =
@@ -830,7 +1251,7 @@ Last updated: ${now}
   }
 
   /**
-   * Mark a target as unsubscribed.
+   * Mark a target as unsubscribed (LEGACY).
    */
   async markUnsubscribed(tenantId: string, campaignName: string, targetId: string): Promise<void> {
     const campaignFolder = this.getCampaignFolder(tenantId, campaignName);

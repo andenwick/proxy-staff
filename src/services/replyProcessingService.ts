@@ -2,9 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../utils/logger.js';
 import { validateTenantId } from '../utils/validation.js';
-import { CampaignService, Target, CampaignStage } from './campaignService.js';
+import { CampaignService, Target, CampaignStage, CampaignConfig } from './campaignService.js';
 import { UnsubscribeService } from './unsubscribeService.js';
 import { TimelineService } from './timelineService.js';
+import { ProspectService, ProspectData, ProspectStage } from './prospectService.js';
+import { ApprovalQueueService, ActionType } from './approvalQueueService.js';
 
 export interface Reply {
   email_id: string;
@@ -24,6 +26,15 @@ export interface ReplyAnalysis {
   suggested_stage?: string;
   suggested_action?: string;
   keywords_matched: string[];
+}
+
+export interface ReplyProcessingResult {
+  processed: boolean;
+  analysis?: ReplyAnalysis;
+  action_taken?: string;
+  error?: string;
+  meetingRequested?: boolean;
+  responseDraftId?: string;
 }
 
 /**
@@ -97,13 +108,34 @@ const INTENT_PATTERNS = {
 };
 
 /**
+ * Stage transitions based on reply intent.
+ */
+const STAGE_TRANSITIONS: Record<string, ProspectStage | null> = {
+  interested: 'replied',
+  meeting_request: 'qualified',
+  not_interested: 'lost',
+  unsubscribe: 'lost',
+  out_of_office: null, // No change
+  question: 'replied',
+  unknown: 'replied',
+};
+
+/**
  * ReplyProcessingService handles detecting and processing campaign replies.
+ *
+ * Enhanced to integrate with ProspectService for:
+ * - Email lookup via prospect cache
+ * - Stage updates synced to prospect files
+ * - Interaction history tracking
+ * - Response drafting and approval queue
  */
 export class ReplyProcessingService {
   private projectRoot: string;
   private campaignService: CampaignService;
   private unsubscribeService: UnsubscribeService;
   private timelineService: TimelineService;
+  private prospectService: ProspectService | null = null;
+  private approvalQueueService: ApprovalQueueService | null = null;
 
   constructor(
     campaignService: CampaignService,
@@ -115,6 +147,20 @@ export class ReplyProcessingService {
     this.campaignService = campaignService;
     this.unsubscribeService = unsubscribeService;
     this.timelineService = timelineService;
+  }
+
+  /**
+   * Set the ProspectService for prospect integration.
+   */
+  setProspectService(prospectService: ProspectService): void {
+    this.prospectService = prospectService;
+  }
+
+  /**
+   * Set the ApprovalQueueService for response drafting.
+   */
+  setApprovalQueueService(approvalQueueService: ApprovalQueueService): void {
+    this.approvalQueueService = approvalQueueService;
   }
 
   /**
@@ -215,7 +261,23 @@ export class ReplyProcessingService {
   }
 
   /**
-   * Match an email to a campaign target.
+   * Match an email to a prospect via ProspectService lookup cache.
+   * This is the preferred method for finding prospects by email.
+   */
+  async matchEmailToProspect(
+    tenantId: string,
+    fromEmail: string
+  ): Promise<ProspectData | null> {
+    if (!this.prospectService) {
+      logger.warn({ tenantId }, 'ProspectService not set - falling back to campaign target lookup');
+      return null;
+    }
+
+    return this.prospectService.findProspectByEmail(tenantId, fromEmail);
+  }
+
+  /**
+   * Match an email to a campaign target (legacy method).
    */
   async matchEmailToTarget(
     tenantId: string,
@@ -242,7 +304,305 @@ export class ReplyProcessingService {
   }
 
   /**
-   * Process a reply from a campaign target.
+   * Update prospect from reply - updates stage and adds to interaction history.
+   */
+  async updateProspectFromReply(
+    tenantId: string,
+    slug: string,
+    reply: Reply,
+    analysis: ReplyAnalysis
+  ): Promise<void> {
+    if (!this.prospectService) {
+      logger.warn({ tenantId, slug }, 'ProspectService not set - cannot update prospect');
+      return;
+    }
+
+    // Determine new stage based on intent
+    const newStage = STAGE_TRANSITIONS[analysis.intent];
+
+    // Build interaction history entry
+    const timestamp = reply.received_at || new Date().toISOString();
+    const date = timestamp.split('T')[0];
+    const time = timestamp.split('T')[1]?.split('.')[0] || '';
+
+    const historyEntry = `### ${date} ${time} - Reply received
+**From:** ${reply.from_email}
+**Subject:** ${reply.subject}
+**Intent:** ${analysis.intent} (${analysis.sentiment}, confidence: ${analysis.confidence.toFixed(2)})
+**Body Preview:** ${reply.body.substring(0, 200)}${reply.body.length > 200 ? '...' : ''}
+**Action:** ${analysis.suggested_action}`;
+
+    // Update prospect
+    const updates: Record<string, unknown> = {
+      interactionHistoryAppend: historyEntry,
+    };
+
+    // Only update stage if we have a valid transition (not null and not out_of_office)
+    if (newStage !== null) {
+      updates.stage = newStage;
+    }
+
+    await this.prospectService.updateProspect(tenantId, slug, updates);
+
+    logger.debug({ tenantId, slug, intent: analysis.intent, newStage }, 'Prospect updated from reply');
+  }
+
+  /**
+   * Draft a response to a reply using prospect context.
+   * Returns the drafted response text.
+   */
+  draftResponse(
+    prospect: ProspectData,
+    reply: Reply,
+    analysis: ReplyAnalysis,
+    campaign?: CampaignConfig
+  ): { subject: string; body: string; reasoning: string } {
+    const firstName = prospect.frontmatter.name.split(' ')[0];
+    const company = prospect.frontmatter.company || 'your company';
+
+    // Build response based on intent
+    let subject: string;
+    let body: string;
+    let reasoning: string;
+
+    switch (analysis.intent) {
+      case 'interested':
+        subject = `Re: ${reply.subject}`;
+        body = `Hi ${firstName},
+
+Thank you for your interest! I'd be happy to share more details.
+
+${prospect.businessContext ? `Based on what I know about ${company}, ` : ''}I think we could help you with your goals.
+
+Would you be open to a brief call to discuss your specific needs? I'm flexible on timing.
+
+Best regards`;
+        reasoning = 'Prospect expressed interest - following up with offer to discuss further';
+        break;
+
+      case 'meeting_request':
+        subject = `Re: ${reply.subject}`;
+        body = `Hi ${firstName},
+
+Great, I'd love to schedule a call!
+
+I have availability this week and next. What works best for you?
+
+Alternatively, feel free to pick a time that works: [Calendar link placeholder]
+
+Looking forward to speaking with you.
+
+Best regards`;
+        reasoning = 'Prospect requested a meeting - proposing to schedule';
+        break;
+
+      case 'question':
+        subject = `Re: ${reply.subject}`;
+        body = `Hi ${firstName},
+
+Thanks for your question!
+
+${reply.body.includes('pricing') || reply.body.includes('cost')
+  ? 'Our pricing is customized based on your specific needs. I\'d be happy to put together a proposal after understanding more about your requirements.'
+  : 'Let me address that for you.'}
+
+Would it be helpful to jump on a quick call? I can walk you through everything in more detail.
+
+Best regards`;
+        reasoning = 'Prospect asked a question - acknowledging and offering to discuss';
+        break;
+
+      case 'out_of_office':
+        subject = `Re: ${reply.subject}`;
+        body = `Hi ${firstName},
+
+No problem! I'll follow up when you're back.
+
+Looking forward to connecting then.
+
+Best regards`;
+        reasoning = 'Out of office detected - acknowledging and will follow up later';
+        break;
+
+      default:
+        subject = `Re: ${reply.subject}`;
+        body = `Hi ${firstName},
+
+Thanks for getting back to me.
+
+I'd love to learn more about what you're looking for. Would you have time for a brief call?
+
+Best regards`;
+        reasoning = 'Generic response - asking to continue conversation';
+    }
+
+    return { subject, body, reasoning };
+  }
+
+  /**
+   * Queue a drafted response for approval.
+   */
+  async queueResponseForApproval(
+    tenantId: string,
+    prospect: ProspectData,
+    draft: { subject: string; body: string; reasoning: string },
+    campaignId: string,
+    campaignName: string
+  ): Promise<string | null> {
+    if (!this.approvalQueueService) {
+      logger.warn({ tenantId }, 'ApprovalQueueService not set - cannot queue response');
+      return null;
+    }
+
+    const actionId = await this.approvalQueueService.queueAction(tenantId, {
+      campaign_id: campaignId,
+      campaign_name: campaignName,
+      target_id: prospect.slug,
+      target_name: prospect.frontmatter.name,
+      target_email: prospect.frontmatter.email,
+      action_type: 'send_email' as ActionType,
+      channel: 'email',
+      subject: draft.subject,
+      body: draft.body,
+      reasoning: draft.reasoning,
+    });
+
+    logger.info({ tenantId, actionId, prospectSlug: prospect.slug }, 'Response queued for approval');
+
+    return actionId;
+  }
+
+  /**
+   * Process a reply with full prospect integration.
+   * This is the enhanced method that:
+   * 1. Matches email to prospect via lookup cache
+   * 2. Analyzes reply intent
+   * 3. Updates prospect stage and history
+   * 4. Drafts and queues response for approval
+   */
+  async processReplyWithProspect(
+    tenantId: string,
+    reply: Reply
+  ): Promise<ReplyProcessingResult> {
+    try {
+      validateTenantId(tenantId);
+
+      // Step 1: Check for unsubscribe first
+      const isUnsubscribe = await this.unsubscribeService.processReply(
+        tenantId,
+        reply.from_email,
+        reply.body,
+        reply.campaign_id
+      );
+
+      if (isUnsubscribe) {
+        // Update prospect if we can find them
+        const prospect = await this.matchEmailToProspect(tenantId, reply.from_email);
+        if (prospect && this.prospectService) {
+          await this.prospectService.updateProspect(tenantId, prospect.slug, {
+            stage: 'lost',
+            interactionHistoryAppend: `### ${new Date().toISOString().split('T')[0]} - Unsubscribed\nProspect requested to be removed from communications.`,
+          });
+        }
+
+        await this.timelineService.logEvent(
+          tenantId,
+          'CAMPAIGN',
+          `Unsubscribe detected from ${reply.from_email}`
+        );
+
+        return {
+          processed: true,
+          analysis: {
+            sentiment: 'negative',
+            intent: 'unsubscribe',
+            confidence: 0.95,
+            suggested_stage: 'lost',
+            suggested_action: 'add_to_unsubscribe_list',
+            keywords_matched: [],
+          },
+          action_taken: 'marked_unsubscribed',
+        };
+      }
+
+      // Step 2: Analyze reply content
+      const analysis = this.analyzeReply(reply.body);
+
+      // Step 3: Find prospect by email
+      let prospect = await this.matchEmailToProspect(tenantId, reply.from_email);
+      let campaignMatch: { campaign: string; campaignConfig?: CampaignConfig } | null = null;
+
+      // Try to find associated campaign
+      const campaigns = await this.campaignService.listCampaigns(tenantId);
+      for (const campaign of campaigns) {
+        if (campaign.status === 'active' || campaign.status === 'paused') {
+          const refs = await this.campaignService.getTargetReferences(tenantId, campaign.name);
+          const hasProspect = prospect && refs.some(r => r.prospect_slug === prospect!.slug);
+          if (hasProspect) {
+            campaignMatch = { campaign: campaign.name, campaignConfig: campaign.config };
+            break;
+          }
+        }
+      }
+
+      // Step 4: Update prospect if found
+      if (prospect) {
+        await this.updateProspectFromReply(tenantId, prospect.slug, reply, analysis);
+      }
+
+      // Step 5: Draft and queue response (if not out_of_office and not not_interested)
+      let responseDraftId: string | null = null;
+      const shouldDraftResponse =
+        prospect &&
+        campaignMatch &&
+        analysis.intent !== 'out_of_office' &&
+        analysis.intent !== 'not_interested' &&
+        analysis.intent !== 'unsubscribe';
+
+      if (shouldDraftResponse && prospect && campaignMatch) {
+        const draft = this.draftResponse(prospect, reply, analysis, campaignMatch.campaignConfig);
+        responseDraftId = await this.queueResponseForApproval(
+          tenantId,
+          prospect,
+          draft,
+          campaignMatch.campaignConfig?.id || campaignMatch.campaign,
+          campaignMatch.campaign
+        );
+      }
+
+      // Step 6: Log to timeline
+      await this.timelineService.logEvent(
+        tenantId,
+        'CAMPAIGN',
+        `Reply from ${reply.from_email}: ${analysis.intent} - ${analysis.suggested_action}`
+      );
+
+      // Mark reply as processed
+      await this.markReplyProcessed(tenantId, reply.email_id);
+
+      const result: ReplyProcessingResult = {
+        processed: true,
+        analysis,
+        action_taken: prospect ? `prospect_updated_${analysis.suggested_stage || 'no_change'}` : 'analyzed_only',
+        meetingRequested: analysis.intent === 'meeting_request',
+      };
+
+      if (responseDraftId) {
+        result.responseDraftId = responseDraftId;
+      }
+
+      return result;
+    } catch (error) {
+      logger.error({ tenantId, reply, error }, 'Error processing reply with prospect');
+      return {
+        processed: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Process a reply from a campaign target (legacy method).
    */
   async processReply(
     tenantId: string,
