@@ -5,6 +5,7 @@ import { logger } from '../utils/logger.js';
 import { ClaudeCliError } from '../errors/index.js';
 import { incrementCounter, recordTiming } from '../utils/metrics.js';
 import { getPrismaClient } from './prisma.js';
+import { getConfig } from '../config/index.js';
 
 /**
  * Kill a process in a cross-platform way.
@@ -270,7 +271,8 @@ export class ClaudeCliService {
         abortController.abort();
       }, this.timeoutMs);
 
-      const args = ['-p', sessionFlag, sessionId, '--setting-sources', 'user,project,local', '--dangerously-skip-permissions'];
+      const config = getConfig();
+      const args = ['-p', '--model', config.claudeModel, sessionFlag, sessionId, '--setting-sources', 'user,project,local', '--dangerously-skip-permissions'];
       logger.info(
         { sessionId, cwd: tenantFolder, sessionFlag, args: args.join(' '), messageLength: message.length },
         'Spawning Claude CLI subprocess'
