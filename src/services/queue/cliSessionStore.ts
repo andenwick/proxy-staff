@@ -120,6 +120,7 @@ async function spawnCliProcess(
       SENDER_PHONE: senderPhone,
       API_BASE_URL: process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3000}`,
       HOME: '/home/nodejs',
+      ANTHROPIC_API_KEY: '',  // Force OAuth instead of API key
     },
   });
 

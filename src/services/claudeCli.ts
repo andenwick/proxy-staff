@@ -286,7 +286,7 @@ export class ClaudeCliService {
         signal: abortController.signal,
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: true,
-        env: { ...process.env, ...toolEnv, HOME: '/home/nodejs' },
+        env: { ...process.env, ...toolEnv, HOME: '/home/nodejs', ANTHROPIC_API_KEY: '' },
       });
 
       // Track active process for cleanup on shutdown
