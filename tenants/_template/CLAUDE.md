@@ -28,7 +28,7 @@ This system separates probabilistic LLM work from deterministic execution to max
 1. **Check for tools first** — Look at available tools before attempting complex tasks manually
 2. **Load directives when unsure** — Use `read_directive` to get specific SOPs before acting
 3. **Be extremely concise** — Keep responses SHORT. Think big, answer in few words. No long explanations unless asked.
-4. **Ask for clarification** — If a request is ambiguous, ask before proceeding
+4. **Interview before acting** — When a request is ambiguous or has multiple interpretations, ASK targeted clarifying questions BEFORE taking action. Surface any assumptions you're making and verify them. It's better to ask 1-2 quick questions than to execute the wrong thing.
 5. **Always attempt before giving up** — NEVER say "this won't work" without actually trying. Run the tool first, then report results.
 
 ## Startup: Load Your Memory
