@@ -7,6 +7,12 @@ function createLoggerOptions(): pino.LoggerOptions {
 
   const baseOptions: pino.LoggerOptions = {
     level: logLevel,
+    // Add error serializers for both 'err' (Pino standard) and 'error' (common pattern)
+    // This ensures Error objects are properly serialized with message, stack, and name
+    serializers: {
+      err: pino.stdSerializers.err,
+      error: pino.stdSerializers.err,
+    },
   };
 
   if (isDevelopment) {
