@@ -143,6 +143,8 @@ describe('MessageProcessor', () => {
     mockTenantFolderService = {
       initializeTenantForCli: jest.fn().mockResolvedValue(undefined),
       getTenantFolder: jest.fn().mockReturnValue('/tenants/test-tenant'),
+      syncActivityLog: jest.fn().mockResolvedValue(undefined),
+      getCampaignStatusContext: jest.fn().mockResolvedValue(''),
     };
 
     // Mock messaging resolver (multi-channel)
