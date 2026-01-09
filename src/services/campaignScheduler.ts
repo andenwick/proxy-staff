@@ -11,6 +11,8 @@ import { MessageProcessor } from './messageProcessor.js';
 import { ReplyProcessingService, Reply } from './replyProcessingService.js';
 import { ProspectService, ProspectData } from './prospectService.js';
 import { ResponseTimingService } from './responseTimingService.js';
+import { ApprovalNotificationService } from './approvalNotificationService.js';
+import { getTelegramService } from './index.js';
 
 /**
  * Pipeline health report for a campaign.
@@ -54,6 +56,7 @@ interface DailySendsData {
  * 3. Check follow-ups due -> draft follow-up -> queue for approval
  * 4. Update campaign metrics
  * 5. Report pipeline health (on-demand or daily)
+ * 6. Send pending notifications to Telegram
  */
 export class CampaignScheduler {
   private prisma: PrismaClient;
@@ -65,6 +68,7 @@ export class CampaignScheduler {
   private replyProcessor: ReplyProcessingService;
   private prospectService: ProspectService | null = null;
   private responseTimingService: ResponseTimingService | null = null;
+  private approvalNotificationService: ApprovalNotificationService | null = null;
   private projectRoot: string;
   private cronJob: ReturnType<typeof cron.schedule> | null = null;
   private isRunning = false;
@@ -94,6 +98,25 @@ export class CampaignScheduler {
     );
     // Set the approval queue service on the reply processor
     this.replyProcessor.setApprovalQueueService(approvalQueue);
+
+    // Wire up agent-based email drafting if message processor is available
+    if (this.messageProcessor) {
+      const mp = this.messageProcessor;
+      this.replyProcessor.setAgentDrafter(async (tenantId, context) => {
+        return mp.draftEmailReply(tenantId, {
+          prospectName: context.prospect.frontmatter.name,
+          prospectCompany: context.prospect.frontmatter.company,
+          prospectTitle: context.prospect.frontmatter.title,
+          prospectEmail: context.prospect.frontmatter.email || context.reply.from_email,
+          replySubject: context.reply.subject,
+          replyBody: context.reply.body,
+          intent: context.analysis.intent,
+          campaignName: context.campaignName,
+          businessContext: context.prospect.businessContext,
+          interactionHistory: context.prospect.interactionHistory,
+        });
+      });
+    }
   }
 
   /**
@@ -109,6 +132,13 @@ export class CampaignScheduler {
    */
   setResponseTimingService(responseTimingService: ResponseTimingService): void {
     this.responseTimingService = responseTimingService;
+  }
+
+  /**
+   * Set the ApprovalNotificationService for Telegram notifications.
+   */
+  setApprovalNotificationService(service: ApprovalNotificationService): void {
+    this.approvalNotificationService = service;
   }
 
   /**
@@ -236,13 +266,19 @@ export class CampaignScheduler {
    * Step 2: Process scheduled sends
    * Step 3: Check follow-ups due
    * Step 4: Process new outreach for targets
-   * Step 5: Update metrics
+   * Step 5: Send pending notifications to Telegram
    */
   async processTenantCampaigns(tenantId: string): Promise<void> {
     const campaigns = await this.campaignService.listCampaigns(tenantId);
     const activeCampaigns = campaigns.filter((c) => c.status === 'active');
 
     if (activeCampaigns.length === 0) {
+      // Even if no active campaigns, send pending notifications for existing queued actions
+      try {
+        await this.sendPendingNotifications(tenantId);
+      } catch (error) {
+        logger.error({ tenantId, error }, 'Error sending pending notifications');
+      }
       return;
     }
 
@@ -281,6 +317,124 @@ export class CampaignScheduler {
           { tenantId, campaignId: campaign.id, campaignName: campaign.name, error },
           'Error processing campaign'
         );
+      }
+    }
+
+    // Step 5: Send pending notifications to Telegram
+    try {
+      await this.sendPendingNotifications(tenantId);
+    } catch (error) {
+      logger.error({ tenantId, error }, 'Error sending pending notifications');
+    }
+  }
+
+  /**
+   * Send pending notifications for queued actions that haven't been notified yet.
+   * This method retrieves actions without notification_sent_at and sends Telegram messages.
+   */
+  private async sendPendingNotifications(tenantId: string): Promise<void> {
+    // Check if ApprovalNotificationService is available
+    if (!this.approvalNotificationService) {
+      return;
+    }
+
+    // Check if TelegramService is available
+    const telegramService = getTelegramService();
+    if (!telegramService) {
+      return;
+    }
+
+    // Get tenant's Telegram chat ID
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { telegram_chat_id: true },
+    });
+
+    if (!tenant?.telegram_chat_id) {
+      // Check if there are any pending actions to warn about
+      const pendingActions = await this.approvalQueue.getActionsNeedingNotification(tenantId);
+      if (pendingActions.length > 0) {
+        logger.warn(
+          { tenantId, pendingCount: pendingActions.length },
+          'Tenant has queued actions but no Telegram linked'
+        );
+      }
+      return;
+    }
+
+    const chatId = tenant.telegram_chat_id;
+
+    // Get actions needing notification
+    const actionsToNotify = await this.approvalQueue.getActionsNeedingNotification(tenantId);
+
+    if (actionsToNotify.length === 0) {
+      return;
+    }
+
+    logger.debug(
+      { tenantId, actionCount: actionsToNotify.length },
+      'Sending pending notifications'
+    );
+
+    // Process each action
+    for (const action of actionsToNotify) {
+      try {
+        // Only handle send_email actions for now
+        if (action.action_type !== 'send_email') {
+          continue;
+        }
+
+        // Load campaign config
+        const campaign = await this.campaignService.getCampaign(tenantId, action.campaign_name);
+        if (!campaign) {
+          logger.error(
+            { tenantId, actionId: action.id, campaignName: action.campaign_name },
+            'Campaign not found for notification'
+          );
+          continue;
+        }
+
+        // Load prospect data
+        if (!this.prospectService) {
+          logger.error(
+            { tenantId, actionId: action.id },
+            'ProspectService not available for notification'
+          );
+          continue;
+        }
+
+        const prospect = await this.prospectService.readProspect(tenantId, action.target_id);
+        if (!prospect) {
+          logger.error(
+            { tenantId, actionId: action.id, targetId: action.target_id },
+            'Prospect not found for notification'
+          );
+          continue;
+        }
+
+        // Send notification
+        const result = await this.approvalNotificationService.notifyEmailReady(
+          tenantId,
+          action,
+          prospect,
+          campaign.config,
+          chatId
+        );
+
+        // Update notification info
+        await this.approvalQueue.updateNotificationInfo(tenantId, action.id, result.messageId);
+
+        logger.debug(
+          { tenantId, actionId: action.id, messageId: result.messageId },
+          'Notification sent successfully'
+        );
+      } catch (error) {
+        // Log error but continue to next action
+        logger.error(
+          { tenantId, actionId: action.id, error },
+          'Failed to send notification for action'
+        );
+        // Do not mark notification as sent - will be retried on next cycle
       }
     }
   }

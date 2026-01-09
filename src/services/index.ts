@@ -1,3 +1,4 @@
+import * as cron from 'node-cron';
 import { getConfig } from '../config/index.js';
 import { ClaudeCliService } from './claudeCli.js';
 import { WhatsAppService } from './whatsapp.js';
@@ -28,6 +29,9 @@ import { CampaignService } from './campaignService.js';
 import { ApprovalQueueService } from './approvalQueueService.js';
 import { UnsubscribeService } from './unsubscribeService.js';
 import { CampaignScheduler } from './campaignScheduler.js';
+import { ApprovalNotificationService } from './approvalNotificationService.js';
+import { ProspectService } from './prospectService.js';
+import { ToolHealthService } from './toolHealthService.js';
 import {
   startWorker,
   stopWorker,
@@ -66,6 +70,10 @@ let campaignServiceInstance: CampaignService | null = null;
 let approvalQueueServiceInstance: ApprovalQueueService | null = null;
 let unsubscribeServiceInstance: UnsubscribeService | null = null;
 let campaignSchedulerInstance: CampaignScheduler | null = null;
+let approvalNotificationServiceInstance: ApprovalNotificationService | null = null;
+let prospectServiceInstance: ProspectService | null = null;
+let toolHealthServiceInstance: ToolHealthService | null = null;
+let toolHealthCronJob: cron.ScheduledTask | null = null;
 
 /**
  * Initialize all services. Call this once at startup.
@@ -190,6 +198,16 @@ export function initializeServices(): void {
   campaignServiceInstance = new CampaignService();
   approvalQueueServiceInstance = new ApprovalQueueService();
   unsubscribeServiceInstance = new UnsubscribeService();
+  prospectServiceInstance = new ProspectService();
+
+  // Initialize approval notification service (uses Telegram for notifications)
+  approvalNotificationServiceInstance = new ApprovalNotificationService(
+    process.cwd(),
+    config.telegram?.botToken ? { botToken: config.telegram.botToken } : undefined
+  );
+  logger.info('Approval notification service initialized');
+
+  // Initialize campaign scheduler with all dependencies
   campaignSchedulerInstance = new CampaignScheduler(
     prisma,
     campaignServiceInstance,
@@ -197,8 +215,30 @@ export function initializeServices(): void {
     unsubscribeServiceInstance,
     timelineServiceInstance
   );
+
+  // Inject optional services into campaign scheduler
+  campaignSchedulerInstance.setProspectService(prospectServiceInstance);
+  campaignSchedulerInstance.setApprovalNotificationService(approvalNotificationServiceInstance);
+
   campaignSchedulerInstance.start();
   logger.info('Campaign services initialized and scheduler started (15-minute cycle)');
+
+  // Initialize tool health service and schedule periodic health checks
+  toolHealthServiceInstance = new ToolHealthService();
+
+  // Schedule tool health check every 6 hours (0 */6 * * *)
+  toolHealthCronJob = cron.schedule('0 */6 * * *', () => {
+    logger.info('Tool health check started (scheduled)');
+    toolHealthServiceInstance!.runFullSuite().then((result) => {
+      logger.info(
+        { passed: result.passed, failed: result.failed, skipped: result.skipped },
+        'Tool health check completed (scheduled)'
+      );
+    }).catch((error) => {
+      logger.error({ error }, 'Tool health check failed (scheduled)');
+    });
+  });
+  logger.info('Tool health service initialized (6-hour cron scheduled)');
 
   // Start browser session manager (cleanup interval)
   browserSessionManager.start();
@@ -328,6 +368,16 @@ export async function shutdownServices(): Promise<void> {
       logger.info('Campaign scheduler stopped');
     } catch (error) {
       logger.error({ error }, 'Error stopping campaign scheduler');
+    }
+  }
+
+  // 2.57. Stop tool health cron job
+  if (toolHealthCronJob) {
+    try {
+      toolHealthCronJob.stop();
+      logger.info('Tool health cron job stopped');
+    } catch (error) {
+      logger.error({ error }, 'Error stopping tool health cron job');
     }
   }
 
@@ -551,4 +601,34 @@ export function getCampaignScheduler(): CampaignScheduler {
     throw new Error('Services not initialized. Call initializeServices() first.');
   }
   return campaignSchedulerInstance;
+}
+
+/**
+ * Get the approval notification service. Must call initializeServices first.
+ */
+export function getApprovalNotificationService(): ApprovalNotificationService {
+  if (!approvalNotificationServiceInstance) {
+    throw new Error('Services not initialized. Call initializeServices() first.');
+  }
+  return approvalNotificationServiceInstance;
+}
+
+/**
+ * Get the prospect service. Must call initializeServices first.
+ */
+export function getProspectService(): ProspectService {
+  if (!prospectServiceInstance) {
+    throw new Error('Services not initialized. Call initializeServices() first.');
+  }
+  return prospectServiceInstance;
+}
+
+/**
+ * Get the tool health service. Must call initializeServices first.
+ */
+export function getToolHealthService(): ToolHealthService {
+  if (!toolHealthServiceInstance) {
+    throw new Error('Services not initialized. Call initializeServices() first.');
+  }
+  return toolHealthServiceInstance;
 }
