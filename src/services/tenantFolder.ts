@@ -1112,7 +1112,7 @@ Hard rules that govern agent behavior. These are non-negotiable.
       ].sort((a, b) => b.sortTime - a.sortTime);
 
       // Remove sortTime from output and limit
-      const activities = allActivities.slice(0, limit).map(({ sortTime, ...rest }) => rest);
+      const activities = allActivities.slice(0, limit).map(({ sortTime: _sortTime, ...rest }) => rest);
 
       const data = {
         lastSynced: new Date().toISOString(),

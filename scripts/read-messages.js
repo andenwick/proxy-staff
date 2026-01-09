@@ -3,9 +3,12 @@ const { PrismaClient } = require('@prisma/client');
 const { PrismaPg } = require('@prisma/adapter-pg');
 const pg = require('pg');
 
+// Always use production DB for this debug script
+const url = 'postgresql://postgres:JYVBdXPOxEPwlfwMfFeeJpBRimFktoET@gondola.proxy.rlwy.net:52176/railway';
+
 async function main() {
   const pool = new pg.Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: url,
   });
   const adapter = new PrismaPg(pool);
   const prisma = new PrismaClient({ adapter });

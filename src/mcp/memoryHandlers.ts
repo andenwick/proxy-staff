@@ -22,12 +22,6 @@ export interface MemoryWriteInput {
   markdown?: string;
 }
 
-interface MemoryData {
-  data: Record<string, unknown>;
-  markdown: string;
-  version: number;
-}
-
 /**
  * Generate a short unique ID (8 characters)
  */
@@ -384,13 +378,15 @@ export async function handleMemoryWrite(
             isError: true,
           };
         }
-        // Auto-generate ID if value is object without id
-        let valueToAppend = input.value;
-        if (typeof valueToAppend === 'object' && valueToAppend !== null && !('id' in valueToAppend)) {
-          valueToAppend = { ...valueToAppend, id: generateId() };
+        {
+          // Auto-generate ID if value is object without id
+          let valueToAppend = input.value;
+          if (typeof valueToAppend === 'object' && valueToAppend !== null && !('id' in valueToAppend)) {
+            valueToAppend = { ...valueToAppend, id: generateId() };
+          }
+          data = appendToArray(data, input.path, valueToAppend);
+          break;
         }
-        data = appendToArray(data, input.path, valueToAppend);
-        break;
 
       case 'remove':
         if (!input.path) {

@@ -261,6 +261,7 @@ describe('MessageProcessor', () => {
     });
 
     it('handles /cancel command when no session is running', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { hasSession } = require('../queue/cliSessionStore.js');
       (hasSession as jest.Mock).mockReturnValue(false);
 
@@ -276,6 +277,7 @@ describe('MessageProcessor', () => {
     });
 
     it('handles /cancel command when session is running', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { hasSession, closeSession } = require('../queue/cliSessionStore.js');
       (hasSession as jest.Mock).mockReturnValue(true);
 
