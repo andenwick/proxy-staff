@@ -964,4 +964,303 @@ Hard rules that govern agent behavior. These are non-negotiable.
       // Non-fatal - don't throw, just log the error
     }
   }
+
+  /**
+   * Read recent messages from state/recent_messages.json.
+   * Returns formatted context string for Claude, or empty string if unavailable.
+   */
+  async getRecentMessagesContext(tenantId: string, limit: number = 10): Promise<string> {
+    const tenantFolder = this.getTenantFolder(tenantId);
+    const recentMessagesPath = path.join(tenantFolder, 'state', 'recent_messages.json');
+
+    try {
+      const content = await fs.promises.readFile(recentMessagesPath, 'utf-8');
+      const data = JSON.parse(content) as {
+        messages: Array<{ timestamp: string; direction: string; content: string }>;
+      };
+
+      if (!data.messages || data.messages.length === 0) {
+        return '';
+      }
+
+      // Take last N messages (they're already in chronological order)
+      const recentMessages = data.messages.slice(-limit);
+
+      // Format as conversation context
+      const formatted = recentMessages.map(m => {
+        const role = m.direction === 'INBOUND' ? 'User' : 'You';
+        // Truncate long messages
+        const content = m.content.length > 200
+          ? m.content.substring(0, 200) + '...'
+          : m.content;
+        return `- ${role}: ${content}`;
+      }).join('\n');
+
+      return `[CONVERSATION CONTEXT]\nRecent messages:\n${formatted}\n`;
+    } catch (error) {
+      // File doesn't exist or is invalid - not an error, just no context
+      logger.debug({ tenantId, error }, 'No recent messages context available');
+      return '';
+    }
+  }
+
+  /**
+   * Sync unified activity log to state/activity_log.json.
+   * Combines messages, approval history, and email activity for full visibility.
+   */
+  async syncActivityLog(tenantId: string, limit: number = 50): Promise<void> {
+    const tenantFolder = this.getTenantFolder(tenantId);
+    const stateDir = path.join(tenantFolder, 'state');
+    const activityLogPath = path.join(stateDir, 'activity_log.json');
+    const pendingApprovalsPath = path.join(stateDir, 'pending_approvals.json');
+
+    try {
+      // Ensure state directory exists
+      await fs.promises.mkdir(stateDir, { recursive: true });
+
+      // 1. Get recent messages from database
+      const prisma = getPrismaClient();
+      const messages = await prisma.messages.findMany({
+        where: { tenant_id: tenantId },
+        orderBy: { created_at: 'desc' },
+        take: limit,
+        select: {
+          content: true,
+          direction: true,
+          created_at: true,
+        },
+      });
+
+      const messageActivities = messages.map(m => ({
+        type: 'message' as const,
+        direction: m.direction.toLowerCase(),
+        content: m.content.length > 200 ? m.content.substring(0, 200) + '...' : m.content,
+        timestamp: m.created_at.toISOString(),
+      }));
+
+      // 2. Get approval history from pending_approvals.json
+      let approvalActivities: Array<{
+        type: 'email_sent' | 'approval';
+        target: string;
+        action: string;
+        timestamp: string;
+        subject?: string;
+      }> = [];
+
+      try {
+        const approvalsContent = await fs.promises.readFile(pendingApprovalsPath, 'utf-8');
+        const approvalsData = JSON.parse(approvalsContent) as {
+          history: Array<{
+            target_name: string;
+            status: string;
+            action_type: string;
+            approved_at?: string;
+            executed_at?: string;
+            rejected_at?: string;
+          }>;
+          pending: Array<{
+            target_name: string;
+            subject?: string;
+            queued_at: string;
+          }>;
+        };
+
+        // Add executed emails (sent)
+        for (const h of approvalsData.history.slice(0, 20)) {
+          if (h.status === 'executed' && h.executed_at) {
+            approvalActivities.push({
+              type: 'email_sent',
+              target: h.target_name,
+              action: h.action_type,
+              timestamp: h.executed_at,
+            });
+          } else if (h.status === 'approved' && h.approved_at) {
+            approvalActivities.push({
+              type: 'approval',
+              target: h.target_name,
+              action: 'approved',
+              timestamp: h.approved_at,
+            });
+          } else if (h.status === 'rejected' && h.rejected_at) {
+            approvalActivities.push({
+              type: 'approval',
+              target: h.target_name,
+              action: 'rejected',
+              timestamp: h.rejected_at,
+            });
+          }
+        }
+
+        // Note pending actions count for context
+        const pendingCount = approvalsData.pending?.length || 0;
+        if (pendingCount > 0) {
+          approvalActivities.unshift({
+            type: 'approval',
+            target: `${pendingCount} action(s)`,
+            action: 'pending',
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } catch {
+        // No approvals file - that's fine
+      }
+
+      // 3. Combine and sort by timestamp (newest first)
+      const allActivities = [
+        ...messageActivities.map(a => ({ ...a, sortTime: new Date(a.timestamp).getTime() })),
+        ...approvalActivities.map(a => ({ ...a, sortTime: new Date(a.timestamp).getTime() })),
+      ].sort((a, b) => b.sortTime - a.sortTime);
+
+      // Remove sortTime from output and limit
+      const activities = allActivities.slice(0, limit).map(({ sortTime, ...rest }) => rest);
+
+      const data = {
+        lastSynced: new Date().toISOString(),
+        activityCount: activities.length,
+        activities,
+      };
+
+      await fs.promises.writeFile(activityLogPath, JSON.stringify(data, null, 2), 'utf-8');
+      logger.info({ tenantId, activityCount: activities.length }, 'Synced activity log to state folder');
+    } catch (error) {
+      logger.error({ tenantId, error }, 'Failed to sync activity log');
+      // Non-fatal - don't throw
+    }
+  }
+
+  /**
+   * Get campaign status context for agent awareness.
+   * Returns pending approvals, today's sends, and active campaigns.
+   */
+  async getCampaignStatusContext(tenantId: string): Promise<string> {
+    const tenantFolder = this.getTenantFolder(tenantId);
+    const stateDir = path.join(tenantFolder, 'state');
+
+    try {
+      let context = '';
+
+      // 1. Get pending approvals
+      try {
+        const approvalsPath = path.join(stateDir, 'pending_approvals.json');
+        const approvalsContent = await fs.promises.readFile(approvalsPath, 'utf-8');
+        const approvalsData = JSON.parse(approvalsContent) as {
+          pending: Array<{ target_name: string; action_type: string }>;
+        };
+
+        const pending = approvalsData.pending || [];
+        if (pending.length > 0) {
+          const names = pending.slice(0, 3).map(p => p.target_name).join(', ');
+          const extra = pending.length > 3 ? ` +${pending.length - 3} more` : '';
+          context += `Pending approvals: ${pending.length} (${names}${extra})\n`;
+        }
+      } catch {
+        // No approvals file
+      }
+
+      // 2. Get today's send count
+      try {
+        const dailySendsPath = path.join(stateDir, 'daily_sends.json');
+        const sendsContent = await fs.promises.readFile(dailySendsPath, 'utf-8');
+        const sendsData = JSON.parse(sendsContent) as {
+          sends: Record<string, number>;
+        };
+
+        const today = new Date().toISOString().split('T')[0];
+        const todaySends = sendsData.sends?.[today] || 0;
+        if (todaySends > 0) {
+          context += `Emails sent today: ${todaySends}\n`;
+        }
+      } catch {
+        // No sends file
+      }
+
+      // 3. Count active campaigns (from operations/campaigns folder)
+      try {
+        const campaignsDir = path.join(tenantFolder, 'operations', 'campaigns');
+        const dirs = await fs.promises.readdir(campaignsDir, { withFileTypes: true });
+        const campaignFolders = dirs.filter(d => d.isDirectory());
+
+        let activeCount = 0;
+        for (const folder of campaignFolders.slice(0, 10)) {
+          const configPath = path.join(campaignsDir, folder.name, 'config.md');
+          try {
+            const content = await fs.promises.readFile(configPath, 'utf-8');
+            if (content.includes('"status": "active"')) {
+              activeCount++;
+            }
+          } catch {
+            // Config not found
+          }
+        }
+
+        if (activeCount > 0) {
+          context += `Active campaigns: ${activeCount}\n`;
+        }
+      } catch {
+        // No campaigns folder
+      }
+
+      if (context) {
+        return `[CAMPAIGN STATUS]\n${context}\n`;
+      }
+      return '';
+    } catch (error) {
+      logger.debug({ tenantId, error }, 'Failed to get campaign status context');
+      return '';
+    }
+  }
+
+  /**
+   * Get formatted activity summary for agent context.
+   * Returns a concise summary of recent activity across all channels.
+   */
+  async getActivitySummary(tenantId: string): Promise<string> {
+    const tenantFolder = this.getTenantFolder(tenantId);
+    const activityLogPath = path.join(tenantFolder, 'state', 'activity_log.json');
+
+    try {
+      const content = await fs.promises.readFile(activityLogPath, 'utf-8');
+      const data = JSON.parse(content) as {
+        activities: Array<{
+          type: string;
+          direction?: string;
+          content?: string;
+          target?: string;
+          action?: string;
+          timestamp: string;
+        }>;
+      };
+
+      if (!data.activities || data.activities.length === 0) {
+        return '';
+      }
+
+      // Group by type and summarize
+      const emailsSent = data.activities.filter(a => a.type === 'email_sent').length;
+      const pendingApprovals = data.activities.find(a => a.type === 'approval' && a.action === 'pending');
+      const recentMessages = data.activities.filter(a => a.type === 'message').slice(0, 5);
+
+      let summary = '[RECENT ACTIVITY]\n';
+
+      if (pendingApprovals) {
+        summary += `Pending approvals: ${pendingApprovals.target}\n`;
+      }
+
+      if (emailsSent > 0) {
+        summary += `Emails sent recently: ${emailsSent}\n`;
+      }
+
+      if (recentMessages.length > 0) {
+        summary += 'Recent messages:\n';
+        for (const m of recentMessages) {
+          const role = m.direction === 'inbound' ? 'User' : 'You';
+          summary += `- ${role}: ${m.content}\n`;
+        }
+      }
+
+      return summary + '\n';
+    } catch {
+      return '';
+    }
+  }
 }
