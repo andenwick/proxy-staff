@@ -50,6 +50,14 @@ interface ToolDefinition {
     properties?: Record<string, unknown>;
     required?: string[];
   };
+  // Health check fields
+  test_input?: Record<string, unknown>;
+  skip_test?: boolean;
+  test_chain?: {
+    depends_on: string;
+    map_output: string;
+    to_input: string;
+  };
 }
 
 interface ToolManifest {
@@ -104,6 +112,7 @@ const BUILTIN_TOOLS: ToolDefinition[] = [
       },
       required: ['type'],
     },
+    skip_test: true, // Built-in tool, tested separately
   },
   {
     name: 'memory_write',
@@ -120,6 +129,7 @@ const BUILTIN_TOOLS: ToolDefinition[] = [
       },
       required: ['type', 'operation'],
     },
+    skip_test: true, // Built-in tool, tested separately
   },
 ];
 
@@ -150,6 +160,23 @@ function loadTenantEnv(): Record<string, string> {
 // Note: tenantEnv is loaded fresh on each tool call to pick up credential changes
 
 /**
+ * Validate that a tool has proper test configuration.
+ * Returns error message if invalid, null if valid.
+ */
+function validateToolTestConfig(tool: ToolDefinition, filePath: string): string | null {
+  // Tool must have either test_input, skip_test: true, or test_chain
+  const hasTestInput = tool.test_input !== undefined;
+  const hasSkipTest = tool.skip_test === true;
+  const hasTestChain = tool.test_chain !== undefined;
+
+  if (!hasTestInput && !hasSkipTest && !hasTestChain) {
+    return `Tool "${tool.name}" in ${filePath} must have either test_input, skip_test: true, or test_chain configured for health checks`;
+  }
+
+  return null;
+}
+
+/**
  * Load tool manifest from tenant folder
  * Supports modular tools (execution/tools/*.json) with fallback to single manifest
  */
@@ -167,17 +194,34 @@ function loadToolManifest(): ToolManifest {
   if (fs.existsSync(toolsDir)) {
     const allTools: ToolDefinition[] = [];
     const files = fs.readdirSync(toolsDir).filter(f => f.endsWith('.json'));
+    const validationErrors: string[] = [];
 
     for (const file of files) {
       try {
-        const content = fs.readFileSync(path.join(toolsDir, file), 'utf-8');
+        const filePath = path.join(toolsDir, file);
+        const content = fs.readFileSync(filePath, 'utf-8');
         const manifest = JSON.parse(content);
         if (manifest.tools && Array.isArray(manifest.tools)) {
+          // Validate each tool has test configuration
+          for (const tool of manifest.tools) {
+            const error = validateToolTestConfig(tool, file);
+            if (error) {
+              validationErrors.push(error);
+            }
+          }
           allTools.push(...manifest.tools);
         }
       } catch (error) {
         mcpLogger.warn({ file, error }, 'Failed to load modular tool manifest');
       }
+    }
+
+    // If there are validation errors, log them and fail startup
+    if (validationErrors.length > 0) {
+      for (const error of validationErrors) {
+        mcpLogger.error({ error }, 'Tool manifest validation failed');
+      }
+      throw new Error(`Tool manifest validation failed: ${validationErrors.length} tool(s) missing test configuration. See logs for details.`);
     }
 
     if (allTools.length > 0) {
@@ -201,6 +245,24 @@ function loadToolManifest(): ToolManifest {
   try {
     const content = fs.readFileSync(manifestPath, 'utf-8');
     const manifest = JSON.parse(content) as ToolManifest;
+
+    // Validate each tool has test configuration
+    const validationErrors: string[] = [];
+    for (const tool of manifest.tools) {
+      const error = validateToolTestConfig(tool, 'tool_manifest.json');
+      if (error) {
+        validationErrors.push(error);
+      }
+    }
+
+    // If there are validation errors, log them and fail startup
+    if (validationErrors.length > 0) {
+      for (const error of validationErrors) {
+        mcpLogger.error({ error }, 'Tool manifest validation failed');
+      }
+      throw new Error(`Tool manifest validation failed: ${validationErrors.length} tool(s) missing test configuration. See logs for details.`);
+    }
+
     mcpLogger.info({ toolCount: manifest.tools.length, toolNames: manifest.tools.map(t => t.name) }, 'Loaded tools from single manifest');
     return manifest;
   } catch (error) {
