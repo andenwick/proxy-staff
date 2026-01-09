@@ -1,7 +1,7 @@
 import { getConfig } from './config/index.js';
 import { logger } from './utils/logger.js';
 import { buildServer, startServer } from './server.js';
-import { initializeServices, shutdownServices } from './services/index.js';
+import { initializeServices, shutdownServices, getToolHealthService } from './services/index.js';
 
 // Global error handlers for uncaught exceptions
 process.on('uncaughtException', async (error: Error) => {
@@ -39,6 +39,21 @@ async function main(): Promise<void> {
     // Build and start server
     const server = await buildServer();
     await startServer(server, config.port);
+
+    // Schedule initial tool health check 30 seconds after startup
+    logger.info('Initial tool health check scheduled (30s after startup)');
+    setTimeout(() => {
+      const toolHealthService = getToolHealthService();
+      logger.info('Running initial tool health check');
+      toolHealthService.runFullSuite().then((result) => {
+        logger.info(
+          { passed: result.passed, failed: result.failed, skipped: result.skipped },
+          'Initial tool health check completed'
+        );
+      }).catch((error) => {
+        logger.error({ error }, 'Initial tool health check failed');
+      });
+    }, 30000);
   } catch (err) {
     logger.fatal({ err }, 'Failed to start application');
     process.exit(1);

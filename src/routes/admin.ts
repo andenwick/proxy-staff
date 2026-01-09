@@ -2,7 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger as baseLogger } from '../utils/logger.js';
-import { getCampaignScheduler } from '../services/index.js';
+import { getCampaignScheduler, getToolHealthService } from '../services/index.js';
 
 const logger = baseLogger.child({ module: 'admin-routes' });
 
@@ -19,6 +19,10 @@ interface CredentialsResponse {
   message: string;
   tenantId: string;
   keysSet?: string[];
+}
+
+interface HealthCheckBody {
+  tenantId?: string;
 }
 
 /**
@@ -255,6 +259,47 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
         success: false,
         message: `Failed to trigger campaign processing: ${error instanceof Error ? error.message : 'Unknown error'}`,
         tenantId,
+      });
+    }
+  });
+
+  /**
+   * Run tool health check suite
+   *
+   * POST /admin/tools/health-check
+   * Body (optional): { tenantId?: string }
+   *
+   * Runs the tool health check suite for all tenants or a specific tenant.
+   * Returns: { passed, failed, skipped, results }
+   */
+  fastify.post<{
+    Body: HealthCheckBody;
+  }>('/admin/tools/health-check', async (request, reply) => {
+    const tenantId = request.body?.tenantId;
+
+    // Validate tenant ID if provided
+    if (tenantId && !/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
+      return reply.status(400).send({
+        error: 'Invalid tenant ID format',
+      });
+    }
+
+    try {
+      const toolHealthService = getToolHealthService();
+      logger.info({ tenantId: tenantId || 'all' }, 'Running tool health check');
+
+      const results = await toolHealthService.runFullSuite(tenantId);
+
+      logger.info(
+        { passed: results.passed, failed: results.failed, skipped: results.skipped },
+        'Tool health check completed'
+      );
+
+      return reply.send(results);
+    } catch (error) {
+      logger.error({ error }, 'Tool health check failed');
+      return reply.status(500).send({
+        error: `Tool health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     }
   });

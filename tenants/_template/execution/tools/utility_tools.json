@@ -15,7 +15,8 @@
           }
         },
         "required": ["message"]
-      }
+      },
+      "test_input": {"message": "health check"}
     }
   ]
 }
