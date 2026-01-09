@@ -8,7 +8,7 @@ import { ClaudeCliService } from './claudeCli.js';
 import { TenantFolderService } from './tenantFolder.js';
 import { LearningService } from './learningService.js';
 import { TimelineService } from './timelineService.js';
-import { getOrCreateSession, endSession, createSession } from './session.js';
+import { getOrCreateSession, endSession, createSession, releaseSessionLease } from './session.js';
 import { logger } from '../utils/logger.js';
 import {
   ClaudeAPIError,
@@ -119,9 +119,12 @@ export class MessageProcessor {
       return { success: false, error: 'Empty message' };
     }
 
+    let sessionId: string | null = null;
     try {
       // Get or create database session (auto-expires after 24 hours of inactivity)
-      const { sessionId, isNew } = await getOrCreateSession(tenantId, senderPhone);
+      const session = await getOrCreateSession(tenantId, senderPhone);
+      sessionId = session.sessionId;
+      const isNew = session.isNew;
 
       // If a new session was created (old one expired), trigger learning then sync CLI session
       // Skip learning if we just interrupted a job - that's not a natural conversation end
@@ -279,6 +282,14 @@ export class MessageProcessor {
 
       return { success: false, error: errorMessage };
     } finally {
+      // Release session lease so subsequent messages can use the same session
+      if (sessionId) {
+        try {
+          await releaseSessionLease(sessionId);
+        } catch (e) {
+          logger.warn({ err: e, sessionId, tenantId }, 'Failed to release session lease');
+        }
+      }
       recordTiming('message_processing_ms', Date.now() - startMs, { status });
       incrementCounter('messages_processed', { status, tenantId });
     }
