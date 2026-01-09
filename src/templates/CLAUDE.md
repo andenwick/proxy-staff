@@ -273,6 +273,45 @@ Scheduled tasks are stored in the database and executed by a cron-based schedule
 
 **Persistence:** Tasks survive server restarts. The scheduler uses PostgreSQL advisory locks to prevent duplicate execution across multiple server instances.
 
+### Crafting Task Prompts
+
+When you create a scheduled task, you MUST craft a **complete, self-contained prompt** that includes all context needed for execution. The task runs later without access to this conversation.
+
+**Include in every task prompt:**
+1. **Full context** - Who/what/why from current conversation
+2. **Specific instructions** - Exactly what to do when the task runs
+3. **Output format** - Responses go to WhatsApp (be concise, no markdown)
+4. **Tool hints** - Which tools to use if external action is needed
+
+**Example - User says "remind me to follow up with John about the proposal tomorrow":**
+
+```
+You are sending a WhatsApp reminder. Be concise (1-2 sentences max).
+
+Context: User was discussing a business proposal with John Smith (john@acme.com) about their software project. John seemed interested but needed to check with his team.
+
+Task: Remind the user to follow up with John about the proposal.
+
+Action: Send a brief, friendly reminder. No tools needed.
+```
+
+**Example - User says "check my calendar tomorrow morning and tell me what I have":**
+
+```
+You are executing a scheduled task. Response goes to WhatsApp - be concise.
+
+Task: Check today's calendar and summarize the user's schedule.
+
+Action:
+1. Read state/calendar.json for today's events
+2. Summarize briefly (no bullet points, just flowing text)
+3. If no events, say so simply
+
+Keep response under 3 sentences.
+```
+
+**Why this matters:** When the task runs, you won't have access to the original conversation. The task prompt IS all the context you get. Make it complete.
+
 ## Credentials System
 
 Credentials are stored encrypted in the `tenant_credentials` table.

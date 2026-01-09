@@ -173,15 +173,21 @@ export class MessageProcessor {
       // Initialize tenant folder for CLI (creates CLAUDE.md, settings.json, shared_tools)
       await this.tenantFolderService.initializeTenantForCli(tenantId);
 
-      // Sync recent messages for context continuity on new sessions
+      // Sync context files for continuity on new sessions
       if (isNew) {
         await this.tenantFolderService.syncRecentMessages(tenantId);
+        await this.tenantFolderService.syncActivityLog(tenantId);
       }
 
       // Check onboarding status and prepend context if needed
       const onboardingStatus = await this.getOnboardingStatus(tenantId);
       const onboardingContext = this.buildOnboardingContext(onboardingStatus);
-      const messageWithContext = onboardingContext + messageContent;
+
+      // Get campaign status for context awareness
+      const campaignContext = await this.tenantFolderService.getCampaignStatusContext(tenantId);
+
+      // Build full context: campaign status + onboarding + message
+      const messageWithContext = campaignContext + onboardingContext + messageContent;
 
       // --- CLI Session Injection ---
       // Get or create a persistent CLI session for this user
@@ -298,48 +304,17 @@ export class MessageProcessor {
 
     logger.info({ tenantId, userPhone, taskPrompt: taskPrompt.substring(0, 50), taskType }, 'Executing scheduled task via CLI');
 
-    // Build contextual prompt based on task type
-    let contextualPrompt: string;
-    if (taskType === 'execute') {
-      // Build previous outputs context
-      let previousContext = '';
-      if (previousOutputs.length > 0) {
-        const outputList = previousOutputs.map((o, i) => `${i + 1}. "${o}"`).join('\n');
-        previousContext = `\n[PREVIOUS OUTPUTS]\nYour last ${previousOutputs.length} outputs for this recurring task:\n${outputList}\nContinue from where you left off.\n`;
-      } else {
-        previousContext = `\n[FIRST RUN]\nThis is the first execution of this recurring task. Start from the beginning.\n`;
-      }
-
-      // Execute mode: actually perform the action
-      contextualPrompt = `[SCHEDULED TASK - EXECUTE]
-Task: "${taskPrompt}"
-${previousContext}
-RULES:
-1. Your response goes to WhatsApp - BE VERY CONCISE (1-3 short sentences)
-2. No bullet points, no numbered lists, no markdown
-3. If the task needs an external action, you MUST call the appropriate tool(s) and wait for results
-4. If no tool is needed, answer directly without claiming any external action
-5. For "send me X" tasks, respond with just X
-6. Skip pleasantries and filler words
-
-Execute now.`;
-    } else {
-      // Reminder mode (default): just remind the user
-      contextualPrompt = `[SCHEDULED REMINDER]
-Reminder: "${taskPrompt}"
-
-RULES:
-1. WhatsApp message - BE VERY CONCISE (1-2 short sentences)
-2. No bullet points, no numbered lists, no markdown
-3. Just write the reminder text directly
-4. No tools needed
-5. Skip pleasantries
-
-Send reminder now.`;
-    }
-
     // Initialize tenant folder for CLI
     await this.tenantFolderService.initializeTenantForCli(tenantId);
+
+    // Use the task prompt directly - it was crafted with full context at creation time
+    let contextualPrompt = taskPrompt;
+
+    // For recurring tasks, append previous outputs for continuity
+    if (previousOutputs.length > 0) {
+      const outputList = previousOutputs.map((o, i) => `Run ${i + 1}: ${o}`).join('\n');
+      contextualPrompt += `\n\n[PREVIOUS OUTPUTS]\nYour last ${previousOutputs.length} outputs for this recurring task:\n${outputList}\nContinue from where you left off.`;
+    }
 
     // Execute via CLI
     const response = await this.claudeCliService.sendMessage(
@@ -352,6 +327,92 @@ Send reminder now.`;
     recordTiming('scheduled_task_execution_ms', Date.now() - startMs, { taskType });
 
     return response;
+  }
+
+  /**
+   * Draft an email reply using the agent.
+   * Used by ReplyProcessingService for personalized responses.
+   *
+   * @param tenantId - The tenant ID
+   * @param context - Prospect and reply context
+   * @returns The drafted email body, or null if drafting failed
+   */
+  async draftEmailReply(
+    tenantId: string,
+    context: {
+      prospectName: string;
+      prospectCompany?: string;
+      prospectTitle?: string;
+      prospectEmail: string;
+      replySubject: string;
+      replyBody: string;
+      intent: string;
+      campaignName: string;
+      businessContext?: string;
+      interactionHistory?: string;
+    }
+  ): Promise<string | null> {
+    const startMs = Date.now();
+
+    logger.info({ tenantId, prospectEmail: context.prospectEmail, intent: context.intent }, 'Drafting email reply via agent');
+
+    // Initialize tenant folder
+    await this.tenantFolderService.initializeTenantForCli(tenantId);
+
+    // Build the prompt with full context
+    const prompt = `[EMAIL REPLY DRAFTING]
+You are drafting a response to a prospect's email reply.
+
+PROSPECT:
+- Name: ${context.prospectName}
+- Company: ${context.prospectCompany || 'Unknown'}
+- Title: ${context.prospectTitle || 'Unknown'}
+- Email: ${context.prospectEmail}
+${context.businessContext ? `\nBusiness Context:\n${context.businessContext}\n` : ''}
+${context.interactionHistory ? `\nInteraction History:\n${context.interactionHistory}\n` : ''}
+
+CAMPAIGN: ${context.campaignName}
+
+THEIR REPLY:
+Subject: ${context.replySubject}
+---
+${context.replyBody}
+---
+
+DETECTED INTENT: ${context.intent}
+
+INSTRUCTIONS:
+1. Write a personalized response that matches your voice (concise, professional, helpful)
+2. Reference specific details from their reply and what you know about them
+3. Guide toward booking a discovery call naturally
+4. Keep it under 150 words
+5. No generic templates - make it feel personal
+6. Do NOT include the subject line - just the email body
+7. Do NOT include a signature - it will be added automatically
+
+Draft the email body now:`;
+
+    try {
+      // Get tenant's user phone (use a system phone for scheduled tasks)
+      const systemPhone = 'system';
+
+      const response = await this.claudeCliService.sendMessage(
+        tenantId,
+        systemPhone,
+        prompt
+      );
+
+      // Clean up the response (remove any extra formatting)
+      const cleanedResponse = response.trim();
+
+      logger.info({ tenantId, responseLength: cleanedResponse.length }, 'Email reply drafted successfully');
+      recordTiming('email_draft_ms', Date.now() - startMs);
+
+      return cleanedResponse;
+    } catch (error) {
+      logger.error({ tenantId, error }, 'Failed to draft email reply via agent');
+      return null;
+    }
   }
 
   private async handleResetCommand(
