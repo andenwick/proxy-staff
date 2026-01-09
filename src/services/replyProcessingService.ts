@@ -121,6 +121,20 @@ const STAGE_TRANSITIONS: Record<string, ProspectStage | null> = {
 };
 
 /**
+ * Callback type for agent-based email drafting.
+ * Returns the drafted email body, or null to fall back to templates.
+ */
+export type AgentDrafterFn = (
+  tenantId: string,
+  context: {
+    prospect: ProspectData;
+    reply: Reply;
+    analysis: ReplyAnalysis;
+    campaignName: string;
+  }
+) => Promise<string | null>;
+
+/**
  * ReplyProcessingService handles detecting and processing campaign replies.
  *
  * Enhanced to integrate with ProspectService for:
@@ -136,6 +150,7 @@ export class ReplyProcessingService {
   private timelineService: TimelineService;
   private prospectService: ProspectService | null = null;
   private approvalQueueService: ApprovalQueueService | null = null;
+  private agentDrafter: AgentDrafterFn | null = null;
 
   constructor(
     campaignService: CampaignService,
@@ -154,6 +169,14 @@ export class ReplyProcessingService {
    */
   setProspectService(prospectService: ProspectService): void {
     this.prospectService = prospectService;
+  }
+
+  /**
+   * Set the agent drafter function for AI-powered email drafting.
+   * When set, email replies will be drafted by the agent instead of templates.
+   */
+  setAgentDrafter(drafter: AgentDrafterFn): void {
+    this.agentDrafter = drafter;
   }
 
   /**
@@ -560,7 +583,38 @@ Best regards`;
         analysis.intent !== 'unsubscribe';
 
       if (shouldDraftResponse && prospect && campaignMatch) {
-        const draft = this.draftResponse(prospect, reply, analysis, campaignMatch.campaignConfig);
+        // Try agent drafting first, fall back to templates
+        let draft: { subject: string; body: string; reasoning: string };
+
+        if (this.agentDrafter) {
+          try {
+            const agentBody = await this.agentDrafter(tenantId, {
+              prospect,
+              reply,
+              analysis,
+              campaignName: campaignMatch.campaign,
+            });
+
+            if (agentBody) {
+              draft = {
+                subject: `Re: ${reply.subject}`,
+                body: agentBody,
+                reasoning: `Agent-drafted response to ${analysis.intent} reply`,
+              };
+              logger.info({ tenantId, prospectSlug: prospect.slug }, 'Email drafted by agent');
+            } else {
+              // Agent returned null, fall back to template
+              draft = this.draftResponse(prospect, reply, analysis, campaignMatch.campaignConfig);
+            }
+          } catch (error) {
+            // Agent failed, fall back to template
+            logger.warn({ tenantId, error }, 'Agent drafting failed, using template');
+            draft = this.draftResponse(prospect, reply, analysis, campaignMatch.campaignConfig);
+          }
+        } else {
+          draft = this.draftResponse(prospect, reply, analysis, campaignMatch.campaignConfig);
+        }
+
         responseDraftId = await this.queueResponseForApproval(
           tenantId,
           prospect,
