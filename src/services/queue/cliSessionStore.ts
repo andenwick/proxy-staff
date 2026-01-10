@@ -14,6 +14,7 @@ export interface CLISession {
   messageCount: number;
   isProcessing: boolean;
   isInitialized: boolean;   // Set to true when init message received
+  resumedFromHistory: boolean;  // True if --resume worked, false if started fresh
   pendingMessages: Array<{ message: string; resolve: (response: string) => void; reject: (error: Error) => void }>;
   outputBuffer: string;
   currentResolve?: (response: string) => void;
@@ -229,6 +230,7 @@ export async function createSession(
     messageCount: 0,
     isProcessing: false,
     isInitialized: false,
+    resumedFromHistory: resumeSucceeded,  // Track if we resumed or started fresh
     pendingMessages: [],
     outputBuffer: '',
     currentResolve: undefined,

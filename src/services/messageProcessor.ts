@@ -176,12 +176,6 @@ export class MessageProcessor {
       // Initialize tenant folder for CLI (creates CLAUDE.md, settings.json, shared_tools)
       await this.tenantFolderService.initializeTenantForCli(tenantId);
 
-      // Sync context files for continuity on new sessions
-      if (isNew) {
-        await this.tenantFolderService.syncRecentMessages(tenantId);
-        await this.tenantFolderService.syncActivityLog(tenantId);
-      }
-
       // Check onboarding status and prepend context if needed
       const onboardingStatus = await this.getOnboardingStatus(tenantId);
       const onboardingContext = this.buildOnboardingContext(onboardingStatus);
@@ -195,11 +189,24 @@ export class MessageProcessor {
       // --- CLI Session Injection ---
       // Get or create a persistent CLI session for this user
       let cliSession = getSession(tenantId, senderPhone);
+      let needsContextSync = false;
 
       if (!cliSession) {
         // Create new CLI session
         logger.info({ tenantId, senderPhone: sanitizedPhone }, 'Creating new CLI session');
         cliSession = await createCliSession(tenantId, senderPhone, sessionId);
+
+        // If resume failed (e.g., after container restart), sync context so agent has history
+        if (!cliSession.resumedFromHistory) {
+          needsContextSync = true;
+          logger.info({ tenantId, senderPhone: sanitizedPhone }, 'CLI session started fresh (resume failed), will sync context');
+        }
+      }
+
+      // Sync context if needed (new DB session OR CLI resume failed)
+      if (needsContextSync || isNew) {
+        await this.tenantFolderService.syncRecentMessages(tenantId);
+        await this.tenantFolderService.syncActivityLog(tenantId);
       }
 
       // Inject message into CLI session and wait for response
