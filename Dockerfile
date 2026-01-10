@@ -129,6 +129,14 @@ CMD ["sh", "-c", "\
     echo 'Claude CLI credentials restored from volume'; \
   fi; \
   \
+  # Persist CLI sessions to volume (survives container restarts) \
+  mkdir -p /app/tenants/.claude-sessions; \
+  mkdir -p /home/nodejs/.claude; \
+  rm -rf /home/nodejs/.claude/projects 2>/dev/null || true; \
+  ln -sf /app/tenants/.claude-sessions /home/nodejs/.claude/projects; \
+  chown -R nodejs:nodejs /home/nodejs/.claude /app/tenants/.claude-sessions; \
+  echo 'Claude CLI sessions symlinked to persistent volume'; \
+  \
   for tenant in /app/tenant-seeds/*/; do \
     name=$(basename $tenant); \
     dest=/app/tenants/$name; \
