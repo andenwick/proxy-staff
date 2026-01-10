@@ -75,6 +75,44 @@ Common tool categories:
 - **Calendar**: `calendar_get_availability`, `calendar_create_event`
 - **Memory**: `memory_read`, `memory_write`
 
+## Memory Tools (Persistent Storage)
+
+**CRITICAL**: These are MCP tools, NOT Python scripts. Call them as `mcp__tools__memory_read` and `mcp__tools__memory_write`.
+
+### When to Use Memory
+
+**READ memory at conversation start:**
+- First message → read identity and patterns for context
+
+**WRITE memory when you learn something new:**
+- User tells you their name, timezone, preferences → `identity`
+- User says "remember that..." or "note that..." → `notes`
+- You notice a pattern → `patterns`
+- User mentions a person → `relationships`
+- User says "never do X" or "always do Y" → `boundaries`
+
+**DON'T write memory for:**
+- Temporary task context
+- Things already in files
+- Trivial one-off information
+
+### Memory Types
+- `identity` - Name, timezone, preferences
+- `patterns` - Communication style, work habits
+- `boundaries` - What never/always to do
+- `relationships` - People mentioned
+- `notes` - Ad-hoc things to remember
+
+### Examples
+```
+# Read
+mcp__tools__memory_read(type: "identity")
+
+# Write (set replaces, merge combines, append adds to array)
+mcp__tools__memory_write(type: "identity", operation: "set", path: "name", value: "User")
+mcp__tools__memory_write(type: "notes", operation: "append", value: {"note": "Prefers email over calls"})
+```
+
 ## Response Style
 
 - Be concise and direct
