@@ -1,0 +1,31 @@
+{
+  "name": "Business Name",
+  "phone": "+18015551234",
+  "channel": "TELEGRAM",
+
+  "business": {
+    "industry": "Professional Services",
+    "location": {
+      "city": "Salt Lake City",
+      "state": "UT"
+    },
+    "hours": {
+      "timezone": "America/Denver",
+      "schedule": "Mon-Fri 9am-5pm"
+    },
+    "owner": {
+      "name": "John Smith",
+      "role": "Owner"
+    }
+  },
+
+  "voice": {
+    "tone": "professional",
+    "style": "concise"
+  },
+
+  "credentials": {
+    "SENDGRID_API_KEY": "",
+    "GOOGLE_CREDENTIALS_JSON": ""
+  }
+}

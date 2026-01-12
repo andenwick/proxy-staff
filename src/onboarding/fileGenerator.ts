@@ -317,6 +317,153 @@ export async function generateWorkflowMd(
 }
 
 /**
+ * Generate life/identity.md - Personal/business identity for memory
+ */
+export function generateLifeIdentityMd(data: OnboardingResponse): GeneratedFile {
+  const frontmatter = {
+    version: 1,
+    lastUpdated: new Date().toISOString(),
+    name: data.business.owner.name,
+    businessName: data.business.name,
+    timezone: data.business.hours.timezone,
+    industry: data.business.industry,
+    preferences: {
+      communicationStyle: data.voice.style,
+      responseLength: data.voice.style === 'concise' ? 'short' : 'medium',
+      tone: data.voice.tone,
+    },
+  };
+
+  const content = `${jsonFrontmatter(frontmatter)}
+# Identity
+
+Core identity information for ${data.business.name}.
+
+## Owner
+- **Name:** ${data.business.owner.name}
+- **Role:** ${data.business.owner.role}
+- **Timezone:** ${data.business.hours.timezone}
+
+## Business
+- **Industry:** ${data.business.industry}
+- **Location:** ${data.business.location.city}, ${data.business.location.state}
+- **Hours:** ${data.business.hours.schedule}
+
+## Communication Preferences
+- **Tone:** ${data.voice.tone}
+- **Style:** ${data.voice.style}
+${data.voice.personality.length > 0 ? `- **Personality:** ${data.voice.personality.join(', ')}` : ''}
+`;
+
+  return {
+    path: 'life/identity.md',
+    content,
+  };
+}
+
+/**
+ * Generate life/patterns.md - Communication and work patterns
+ */
+export function generateLifePatternsMd(data: OnboardingResponse): GeneratedFile {
+  const communicationPatterns: string[] = [];
+  const workPatterns: string[] = [];
+
+  // Derive patterns from voice profile
+  if (data.voice.style === 'concise') {
+    communicationPatterns.push('Prefers short, to-the-point messages');
+  } else if (data.voice.style === 'detailed') {
+    communicationPatterns.push('Appreciates thorough explanations');
+  }
+
+  if (data.voice.avoidWords.length > 0) {
+    communicationPatterns.push(`Avoid using: ${data.voice.avoidWords.join(', ')}`);
+  }
+
+  if (data.voice.preferWords.length > 0) {
+    communicationPatterns.push(`Preferred terminology: ${data.voice.preferWords.join(', ')}`);
+  }
+
+  // Work patterns from business profile
+  if (data.business.hours.schedule) {
+    workPatterns.push(`Business hours: ${data.business.hours.schedule}`);
+  }
+
+  const frontmatter = {
+    version: 1,
+    lastUpdated: new Date().toISOString(),
+    lastAnalyzed: null,
+    communication: communicationPatterns,
+    work: workPatterns,
+    temporal: [],
+  };
+
+  const content = `${jsonFrontmatter(frontmatter)}
+# Patterns
+
+Observed patterns in behavior and preferences.
+
+## Communication Patterns
+${communicationPatterns.map(p => `- ${p}`).join('\n') || '- _Learning from conversations_'}
+
+## Work Patterns
+${workPatterns.map(p => `- ${p}`).join('\n') || '- _Learning from conversations_'}
+
+## Time-Based Patterns
+- _Learning from conversations_
+
+---
+
+*This file is updated automatically as patterns are observed.*
+`;
+
+  return {
+    path: 'life/patterns.md',
+    content,
+  };
+}
+
+/**
+ * Generate life/knowledge/business.md - Business facts
+ */
+export function generateLifeBusinessMd(data: OnboardingResponse): GeneratedFile {
+  const frontmatter = {
+    version: 1,
+    lastUpdated: new Date().toISOString(),
+    services: data.services.map(s => s.name),
+    pricingModel: data.pricing.model,
+    primaryObjective: data.goals.primaryObjective,
+  };
+
+  const content = `${jsonFrontmatter(frontmatter)}
+# Business Knowledge
+
+Core business facts and procedures.
+
+## Services Offered
+${data.services.map(s => `- **${s.name}**: ${s.description || '_No description_'}`).join('\n') || '- _No services defined_'}
+
+## Pricing
+- **Model:** ${data.pricing.model}
+${data.pricing.ranges ? `- **Range:** ${data.pricing.ranges}` : ''}
+${data.pricing.paymentTerms ? `- **Terms:** ${data.pricing.paymentTerms}` : ''}
+
+## Goals
+- **Primary Objective:** ${data.goals.primaryObjective || '_Not defined_'}
+
+### Pain Points
+${data.goals.painPoints.map(p => `- ${p}`).join('\n') || '- _None specified_'}
+
+### Tasks to Automate
+${data.goals.tasksToAutomate.map(t => `- ${t}`).join('\n') || '- _None specified_'}
+`;
+
+  return {
+    path: 'life/knowledge/business.md',
+    content,
+  };
+}
+
+/**
  * Generate all files from onboarding response
  */
 export async function generateAllFiles(
@@ -332,6 +479,11 @@ export async function generateAllFiles(
   files.push(generateFaqsMd(data.faqs));
   files.push(generatePoliciesMd(data.policies));
   files.push(generateGoalsMd(data.goals));
+
+  // Life files (pre-seed from onboarding data)
+  files.push(generateLifeIdentityMd(data));
+  files.push(generateLifePatternsMd(data));
+  files.push(generateLifeBusinessMd(data));
 
   // Workflow files based on enabled workflows
   for (const workflow of data.workflows) {

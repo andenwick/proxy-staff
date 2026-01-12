@@ -32,6 +32,7 @@ import { CampaignScheduler } from './campaignScheduler.js';
 import { ApprovalNotificationService } from './approvalNotificationService.js';
 import { ProspectService } from './prospectService.js';
 import { ToolHealthService } from './toolHealthService.js';
+import { AlertService, initAlertService, getAlertService } from './alertService.js';
 import {
   startWorker,
   stopWorker,
@@ -98,6 +99,10 @@ export function initializeServices(): void {
       botToken: config.telegram.botToken,
     });
     logger.info('Telegram service initialized');
+
+    // Initialize alert service with Telegram
+    initAlertService(telegramServiceInstance);
+    logger.info('Alert service initialized');
   } else {
     logger.info('Telegram service not configured (TELEGRAM_BOT_TOKEN not set)');
   }
@@ -542,6 +547,12 @@ export function getWebhookAdapter(): WebhookReceiverAdapter {
 export function getTelegramService(): TelegramService | null {
   return telegramServiceInstance;
 }
+
+/**
+ * Get the alert service for sending critical notifications.
+ * Works even if Telegram not configured (falls back to logging).
+ */
+export { getAlertService };
 
 /**
  * Get the messaging service resolver. Must call initializeServices first.
