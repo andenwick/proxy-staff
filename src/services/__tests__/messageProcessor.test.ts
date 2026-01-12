@@ -35,14 +35,16 @@ jest.mock('../../config/index.js', () => ({
   })),
 }));
 
-jest.mock('../../utils/logger.js', () => ({
-  logger: {
+jest.mock('../../utils/logger.js', () => {
+  const createMockLogger = (): Record<string, jest.Mock> => ({
     info: jest.fn(),
     debug: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
-  },
-}));
+    child: jest.fn(() => createMockLogger()),
+  });
+  return { logger: createMockLogger(), createRequestLogger: jest.fn(() => createMockLogger()) };
+});
 
 jest.mock('../../utils/metrics.js', () => ({
   incrementCounter: jest.fn(),
@@ -145,6 +147,7 @@ describe('MessageProcessor', () => {
       getTenantFolder: jest.fn().mockReturnValue('/tenants/test-tenant'),
       syncActivityLog: jest.fn().mockResolvedValue(undefined),
       getCampaignStatusContext: jest.fn().mockResolvedValue(''),
+      syncRecentMessages: jest.fn().mockResolvedValue(undefined),
     };
 
     // Mock messaging resolver (multi-channel)
@@ -414,7 +417,7 @@ describe('MessageProcessor', () => {
       expect(mockClaudeCliService.sendMessage).toHaveBeenCalledWith(
         'tenant-123',
         '+1234567890',
-        expect.stringContaining('SCHEDULED REMINDER')
+        'Call mom'
       );
     });
 
@@ -430,7 +433,7 @@ describe('MessageProcessor', () => {
       expect(mockClaudeCliService.sendMessage).toHaveBeenCalledWith(
         'tenant-123',
         '+1234567890',
-        expect.stringContaining('SCHEDULED TASK - EXECUTE')
+        'Send daily summary'
       );
     });
 
