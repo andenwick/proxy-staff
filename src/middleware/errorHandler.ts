@@ -1,6 +1,7 @@
 import { FastifyPluginAsync, FastifyError, FastifyRequest, FastifyReply } from 'fastify';
 import fp from 'fastify-plugin';
 import { createRequestLogger } from '../utils/logger.js';
+import { getAlertService } from '../services/alertService.js';
 
 // Custom application error class
 export class AppError extends Error {
@@ -55,6 +56,16 @@ const errorHandlerPluginAsync: FastifyPluginAsync = async (fastify) => {
         url: request.url,
         method: request.method,
       }, `Request failed: ${message}`);
+
+      // Alert on 500 errors (internal server errors)
+      if (statusCode === 500) {
+        const alertService = getAlertService();
+        alertService.criticalError(
+          'Internal Server Error',
+          `${request.method} ${request.url} failed`,
+          { error: error.message, requestId }
+        ).catch(() => {}); // Fire and forget, don't block response
+      }
 
       // Build error response
       const errorResponse: ErrorResponse = {

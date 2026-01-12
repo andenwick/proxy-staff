@@ -54,10 +54,17 @@ const requiredEnvVars = [
   'NODE_ENV',
   'DATABASE_URL',
   'CREDENTIALS_ENCRYPTION_KEY',
+  'ADMIN_API_KEY',
   'WHATSAPP_VERIFY_TOKEN',
   'WHATSAPP_APP_SECRET',
   'WHATSAPP_ACCESS_TOKEN',
   'WHATSAPP_PHONE_NUMBER_ID',
+] as const;
+
+// Vars that are optional but recommended for production
+const recommendedEnvVars = [
+  'ADMIN_TELEGRAM_CHAT_ID',
+  'TELEGRAM_BOT_TOKEN',
 ] as const;
 
 function getEnvVar(name: string): string {
@@ -72,6 +79,13 @@ export function loadConfig(): Config {
   // Validate all required environment variables are present
   for (const envVar of requiredEnvVars) {
     getEnvVar(envVar);
+  }
+
+  // Warn about recommended but missing vars
+  for (const envVar of recommendedEnvVars) {
+    if (!process.env[envVar]) {
+      console.warn(`[CONFIG WARNING] ${envVar} not set - some features may not work`);
+    }
   }
 
   const config: Config = {

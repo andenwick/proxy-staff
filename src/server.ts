@@ -2,6 +2,7 @@ import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import { logger } from './utils/logger.js';
 import { requestIdPlugin } from './middleware/requestId.js';
 import { errorHandlerPlugin } from './middleware/errorHandler.js';
+import { rateLimitPlugin, stopRateLimitCleanup } from './middleware/rateLimit.js';
 import { healthRoute } from './routes/health.js';
 import { metricsRoute } from './routes/metrics.js';
 import { whatsappWebhookRoutes, stopDeduplicationCleanup } from './routes/webhooks/whatsapp.js';
@@ -41,6 +42,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // Register middleware plugins
   await server.register(requestIdPlugin);
   await server.register(errorHandlerPlugin);
+  await server.register(rateLimitPlugin);
 
   // Inject Prisma and trigger services for routes
   const prisma = getPrismaClient();
@@ -79,9 +81,10 @@ export async function startServer(server: FastifyInstance, port: number, host: s
   const gracefulShutdown = async (signal: string) => {
     logger.info({ signal }, 'Received shutdown signal, closing server...');
     try {
-      // Stop deduplication cleanup intervals
+      // Stop deduplication and rate limit cleanup intervals
       stopDeduplicationCleanup();
       stopTelegramDeduplicationCleanup();
+      stopRateLimitCleanup();
 
       // Shutdown all services (scheduler, CLI, Python, Prisma)
       await shutdownServices();
