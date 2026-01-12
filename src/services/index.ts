@@ -32,7 +32,7 @@ import { CampaignScheduler } from './campaignScheduler.js';
 import { ApprovalNotificationService } from './approvalNotificationService.js';
 import { ProspectService } from './prospectService.js';
 import { ToolHealthService } from './toolHealthService.js';
-import { AlertService, initAlertService, getAlertService } from './alertService.js';
+import { initAlertService, getAlertService } from './alertService.js';
 import {
   startWorker,
   stopWorker,

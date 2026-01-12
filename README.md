@@ -76,7 +76,7 @@ Beyond reminders, `execute` tasks run tools automatically:
 | Runtime | Node.js (TypeScript ES2022) |
 | Web Framework | Fastify 5.6.2 |
 | Database | PostgreSQL + Prisma ORM 7.1.0 |
-| AI | Anthropic Claude SDK (claude-sonnet-4) |
+| AI | Anthropic Claude CLI (claude-opus-4-5 via Max plan) |
 | Messaging | WhatsApp Cloud API (Meta) / Telegram Bot API |
 | Task Scheduling | node-cron + PostgreSQL leases |
 | Logging | Pino |

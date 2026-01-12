@@ -24,14 +24,16 @@ import { CampaignScheduler } from '../campaignScheduler.js';
 import { CampaignWizardService } from '../campaignWizardService.js';
 
 // Mock logger
-jest.mock('../../utils/logger.js', () => ({
-  logger: {
-    debug: jest.fn(),
+jest.mock('../../utils/logger.js', () => {
+  const createMockLogger = (): Record<string, jest.Mock> => ({
     info: jest.fn(),
-    warn: jest.fn(),
+    debug: jest.fn(),
     error: jest.fn(),
-  },
-}));
+    warn: jest.fn(),
+    child: jest.fn(() => createMockLogger()),
+  });
+  return { logger: createMockLogger(), createRequestLogger: jest.fn(() => createMockLogger()) };
+});
 
 // Mock TelegramService
 const mockSendTextMessage = jest.fn().mockResolvedValue('mock-message-id');

@@ -10,14 +10,16 @@ jest.mock('child_process', () => ({
 }));
 
 // Mock logger to prevent console output during tests
-jest.mock('../../utils/logger.js', () => ({
-  logger: {
+jest.mock('../../utils/logger.js', () => {
+  const createMockLogger = (): Record<string, jest.Mock> => ({
     info: jest.fn(),
     debug: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
-  },
-}));
+    child: jest.fn(() => createMockLogger()),
+  });
+  return { logger: createMockLogger(), createRequestLogger: jest.fn(() => createMockLogger()) };
+});
 
 // Mock metrics
 jest.mock('../../utils/metrics.js', () => ({
@@ -142,7 +144,7 @@ describe('ClaudeCliService Reset Command', () => {
       await promise1;
 
       const firstCallArgs = mockSpawn.mock.calls[0];
-      const firstSessionId = firstCallArgs[1][2]; // --resume or --session-id argument
+      const firstSessionId = firstCallArgs[1][4]; // --resume or --session-id argument (after -p, --model, model-name)
 
       // Reset the session
       await service.resetSession(tenantId, phone);
@@ -159,7 +161,7 @@ describe('ClaudeCliService Reset Command', () => {
       await promise2;
 
       const secondCallArgs = mockSpawn.mock.calls[1];
-      const secondSessionId = secondCallArgs[1][2]; // --resume or --session-id argument
+      const secondSessionId = secondCallArgs[1][4]; // --resume or --session-id argument (after -p, --model, model-name)
 
       expect(firstSessionId).not.toBe(secondSessionId);
     });

@@ -1,5 +1,23 @@
 process.env.DOTENV_CONFIG_QUIET = 'true';
 
+// Set required environment variables for tests
+process.env.ADMIN_API_KEY = 'test-admin-key';
+
+// Mock logger globally to support .child() calls (must be inline due to jest.mock hoisting)
+jest.mock('../src/utils/logger.js', () => {
+  const createMockLogger = (): Record<string, jest.Mock> => ({
+    info: jest.fn(),
+    debug: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(() => createMockLogger()),
+  });
+  return {
+    logger: createMockLogger(),
+    createRequestLogger: jest.fn(() => createMockLogger()),
+  };
+});
+
 // Mock the queue service to prevent Redis connection attempts during tests
 // This fixes tests that call endSession -> addSessionEndJob which requires Redis
 jest.mock('../src/services/queue/queueService', () => ({

@@ -16,6 +16,7 @@ describe('Config Loader', () => {
     process.env.NODE_ENV = 'development';
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/test';
     process.env.CREDENTIALS_ENCRYPTION_KEY = 'test-encryption-key-32-bytes-ok';
+    process.env.ADMIN_API_KEY = 'test-admin-key';
     process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
     process.env.WHATSAPP_VERIFY_TOKEN = 'test-verify-token';
     process.env.WHATSAPP_APP_SECRET = 'test-app-secret';

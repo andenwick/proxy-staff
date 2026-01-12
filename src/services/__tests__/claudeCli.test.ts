@@ -10,14 +10,16 @@ jest.mock('child_process', () => ({
 }));
 
 // Mock logger to prevent console output during tests
-jest.mock('../../utils/logger.js', () => ({
-  logger: {
+jest.mock('../../utils/logger.js', () => {
+  const createMockLogger = (): Record<string, jest.Mock> => ({
     info: jest.fn(),
     debug: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
-  },
-}));
+    child: jest.fn(() => createMockLogger()),
+  });
+  return { logger: createMockLogger(), createRequestLogger: jest.fn(() => createMockLogger()) };
+});
 
 // Mock metrics
 jest.mock('../../utils/metrics.js', () => ({
@@ -139,11 +141,11 @@ describe('ClaudeCliService', () => {
       const response = await messagePromise;
 
       expect(response).toBe('Hello! I am Claude.');
-      // First call should be with --resume and --setting-sources
+      // First call should be with --resume and --setting-sources (includes --model from config)
       expect(mockSpawn).toHaveBeenNthCalledWith(
         1,
         'claude',
-        ['-p', '--resume', expect.any(String), '--setting-sources', 'user,project,local', '--dangerously-skip-permissions'],
+        ['-p', '--model', expect.any(String), '--resume', expect.any(String), '--setting-sources', 'user,project,local', '--dangerously-skip-permissions'],
         expect.objectContaining({
           cwd: expect.stringContaining('tenants'),
           stdio: ['pipe', 'pipe', 'pipe'],
@@ -153,7 +155,7 @@ describe('ClaudeCliService', () => {
       expect(mockSpawn).toHaveBeenNthCalledWith(
         2,
         'claude',
-        ['-p', '--session-id', expect.any(String), '--setting-sources', 'user,project,local', '--dangerously-skip-permissions'],
+        ['-p', '--model', expect.any(String), '--session-id', expect.any(String), '--setting-sources', 'user,project,local', '--dangerously-skip-permissions'],
         expect.objectContaining({
           cwd: expect.stringContaining('tenants'),
           stdio: ['pipe', 'pipe', 'pipe'],
