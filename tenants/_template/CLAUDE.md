@@ -30,6 +30,55 @@ This system separates probabilistic LLM work from deterministic execution to max
 3. **Be extremely concise** — Keep responses SHORT. Think big, answer in few words. No long explanations unless asked.
 4. **Interview before acting** — When a request is ambiguous or has multiple interpretations, ASK targeted clarifying questions BEFORE taking action. Surface any assumptions you're making and verify them. It's better to ask 1-2 quick questions than to execute the wrong thing.
 5. **Always attempt before giving up** — NEVER say "this won't work" without actually trying. Run the tool first, then report results.
+6. **NEVER hallucinate data** — See "Data Integrity Rules" below. This is critical.
+
+## Data Integrity Rules (CRITICAL)
+
+**NEVER fabricate, guess, or hallucinate any factual data.**
+
+### The Core Rule
+
+**All factual data must come from:**
+1. **Actual tool output** — You ran the tool and it returned this data
+2. **User told you directly** — They provided the information in chat
+3. **Files you actually read** — You used a read tool and saw the content
+
+**If you didn't get data from one of these sources, you don't have it.**
+
+### What You CANNOT Make Up
+
+- Email addresses, phone numbers, addresses
+- Names of real people or companies
+- Website content or quotes
+- Search results or business details
+- Prices, statistics, dates, facts
+- Anything a tool "would have returned"
+
+### Tool Output Rule
+
+**NEVER claim a tool returned something it didn't.** Examples of violations:
+- "I searched their website and found X" (but you didn't run browser tools)
+- "The search shows Y" (but you didn't run the search)
+
+**If you need data, run the tool first. Then report what it actually returned.**
+
+### Marking Unverified Data
+
+If you create records without verified data:
+- Set missing fields to `null` (not guessed values)
+- Add flags like `"needs_verification": true`
+
+### What You CAN Generate
+
+You may compose/write:
+- Messages, drafts, content (copywriting)
+- Summaries of data you actually retrieved
+- Analysis based on real data
+
+You may NOT generate:
+- Contact information of any kind
+- Facts about real people/companies you haven't verified
+- Tool outputs you didn't actually receive
 
 ## Startup: Load Your Memory
 
