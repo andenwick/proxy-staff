@@ -411,4 +411,127 @@ print(json.dumps({"echoed": data.get("message", "")}))
       expect(fixPrompt).toContain('.env');
     });
   });
+
+  // =============================================================================
+  // Credential Validation Tests
+  // =============================================================================
+
+  describe('Credential Validation', () => {
+    let credService: ToolHealthService;
+
+    beforeEach(async () => {
+      // Set env vars BEFORE creating service
+      process.env.ADMIN_TELEGRAM_CHAT_ID = 'test-chat-123';
+      process.env.TELEGRAM_BOT_TOKEN = 'test-bot-token';
+
+      // Create a fresh service
+      credService = new ToolHealthService(testProjectRoot);
+
+      // Reset mocks
+      jest.clearAllMocks();
+    });
+
+    afterEach(() => {
+      delete process.env.ADMIN_TELEGRAM_CHAT_ID;
+      delete process.env.TELEGRAM_BOT_TOKEN;
+      jest.restoreAllMocks();
+    });
+
+    it('runCredentialChecks() skips services with no configured env vars', async () => {
+      // .env file only has TEST_KEY, not any credential vars
+      const results = await credService.runCredentialChecks(testTenantId);
+
+      // All validators should be skipped since no env vars are configured
+      expect(results.skipped).toBeGreaterThan(0);
+      expect(results.invalid).toBe(0);
+      expect(results.valid).toBe(0);
+    });
+
+    it('runCredentialChecks() returns results with valid/invalid/skipped counts', async () => {
+      const results = await credService.runCredentialChecks(testTenantId);
+
+      expect(results).toHaveProperty('valid');
+      expect(results).toHaveProperty('invalid');
+      expect(results).toHaveProperty('skipped');
+      expect(results).toHaveProperty('results');
+      expect(Array.isArray(results.results)).toBe(true);
+    });
+
+    it('runCredentialChecks() detects missing env vars when service is partially configured', async () => {
+      // Add partial Google OAuth config (missing REFRESH_TOKEN)
+      await fs.promises.writeFile(
+        path.join(tenantsDir, testTenantId, '.env'),
+        'GOOGLE_DRIVE_CLIENT_ID=test-id\nGOOGLE_DRIVE_CLIENT_SECRET=test-secret\n'
+      );
+
+      const results = await credService.runCredentialChecks(testTenantId);
+
+      // Should have one invalid result for google_oauth with missing vars
+      const googleResult = results.results.find(r => r.service === 'google_oauth');
+      expect(googleResult).toBeDefined();
+      expect(googleResult?.valid).toBe(false);
+      expect(googleResult?.error).toContain('Missing environment variables');
+      expect(googleResult?.missingVars).toContain('GOOGLE_DRIVE_REFRESH_TOKEN');
+    });
+
+    it('alertCredentialFailure() sends Telegram message with affected tools', async () => {
+      const credResult = {
+        service: 'google_oauth',
+        tenantId: testTenantId,
+        valid: false,
+        error: 'Token refresh failed: invalid_grant',
+      };
+
+      const validator = {
+        service: 'google_oauth',
+        envVars: ['GOOGLE_DRIVE_CLIENT_ID', 'GOOGLE_DRIVE_CLIENT_SECRET', 'GOOGLE_DRIVE_REFRESH_TOKEN'],
+        toolsAffected: ['gmail_send', 'drive_upload', 'drive_delete'],
+        validate: jest.fn(),
+      };
+
+      await credService.alertCredentialFailure(credResult, validator);
+
+      expect(mockSendTextMessage).toHaveBeenCalledWith(
+        'test-chat-123',
+        expect.stringContaining('Credential Health Alert')
+      );
+
+      const sentMessage = mockSendTextMessage.mock.calls[0][1] as string;
+      expect(sentMessage).toContain('google_oauth');
+      expect(sentMessage).toContain(testTenantId);
+      expect(sentMessage).toContain('gmail_send');
+    });
+
+    it('queueCredentialFixTask() creates async_jobs record with fix instructions', async () => {
+      const credResult = {
+        service: 'google_oauth',
+        tenantId: testTenantId,
+        valid: false,
+        error: 'Token refresh failed: invalid_grant',
+      };
+
+      const validator = {
+        service: 'google_oauth',
+        envVars: ['GOOGLE_DRIVE_CLIENT_ID', 'GOOGLE_DRIVE_CLIENT_SECRET', 'GOOGLE_DRIVE_REFRESH_TOKEN'],
+        toolsAffected: ['gmail_send', 'drive_upload'],
+        validate: jest.fn(),
+      };
+
+      await credService.queueCredentialFixTask(credResult, validator);
+
+      expect(mockPrismaCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenant_id: testTenantId,
+          session_id: 'credential-check',
+          status: 'PENDING',
+          input_message: expect.stringContaining('google_oauth'),
+        }),
+      });
+
+      const createCall = mockPrismaCreate.mock.calls[0][0];
+      const fixPrompt = createCall.data.input_message;
+      expect(fixPrompt).toContain('scripts/google-oauth.py');
+      expect(fixPrompt).toContain('GOOGLE_DRIVE_REFRESH_TOKEN');
+    });
+  });
 });

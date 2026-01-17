@@ -303,4 +303,45 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
   });
+
+  /**
+   * Run credential health check
+   *
+   * POST /admin/credentials/health-check
+   * Body (optional): { tenantId?: string }
+   *
+   * Validates credentials for services with destructive tools (skip_test: true).
+   * Returns: { valid, invalid, skipped, results }
+   */
+  fastify.post<{
+    Body: HealthCheckBody;
+  }>('/admin/credentials/health-check', async (request, reply) => {
+    const tenantId = request.body?.tenantId;
+
+    // Validate tenant ID if provided
+    if (tenantId && !/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
+      return reply.status(400).send({
+        error: 'Invalid tenant ID format',
+      });
+    }
+
+    try {
+      const toolHealthService = getToolHealthService();
+      logger.info({ tenantId: tenantId || 'all' }, 'Running credential health check');
+
+      const results = await toolHealthService.runCredentialChecks(tenantId);
+
+      logger.info(
+        { valid: results.valid, invalid: results.invalid, skipped: results.skipped },
+        'Credential health check completed'
+      );
+
+      return reply.send(results);
+    } catch (error) {
+      logger.error({ error }, 'Credential health check failed');
+      return reply.status(500).send({
+        error: `Credential health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  });
 };

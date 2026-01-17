@@ -41,18 +41,33 @@ async function main(): Promise<void> {
     await startServer(server, config.port);
 
     // Schedule initial tool health check 30 seconds after startup
-    logger.info('Initial tool health check scheduled (30s after startup)');
-    setTimeout(() => {
+    logger.info('Initial health checks scheduled (30s after startup)');
+    setTimeout(async () => {
       const toolHealthService = getToolHealthService();
+
+      // Run tool health check
       logger.info('Running initial tool health check');
-      toolHealthService.runFullSuite().then((result) => {
+      try {
+        const toolResult = await toolHealthService.runFullSuite();
         logger.info(
-          { passed: result.passed, failed: result.failed, skipped: result.skipped },
+          { passed: toolResult.passed, failed: toolResult.failed, skipped: toolResult.skipped },
           'Initial tool health check completed'
         );
-      }).catch((error) => {
+      } catch (error) {
         logger.error({ error }, 'Initial tool health check failed');
-      });
+      }
+
+      // Run credential check
+      logger.info('Running initial credential check');
+      try {
+        const credResult = await toolHealthService.runCredentialChecks();
+        logger.info(
+          { valid: credResult.valid, invalid: credResult.invalid, skipped: credResult.skipped },
+          'Initial credential check completed'
+        );
+      } catch (error) {
+        logger.error({ error }, 'Initial credential check failed');
+      }
     }, 30000);
   } catch (err) {
     logger.fatal({ err }, 'Failed to start application');
