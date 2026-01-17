@@ -232,16 +232,29 @@ export function initializeServices(): void {
   toolHealthServiceInstance = new ToolHealthService();
 
   // Schedule tool health check every 6 hours (0 */6 * * *)
-  toolHealthCronJob = cron.schedule('0 */6 * * *', () => {
+  toolHealthCronJob = cron.schedule('0 */6 * * *', async () => {
     logger.info('Tool health check started (scheduled)');
-    toolHealthServiceInstance!.runFullSuite().then((result) => {
+    try {
+      const toolResult = await toolHealthServiceInstance!.runFullSuite();
       logger.info(
-        { passed: result.passed, failed: result.failed, skipped: result.skipped },
+        { passed: toolResult.passed, failed: toolResult.failed, skipped: toolResult.skipped },
         'Tool health check completed (scheduled)'
       );
-    }).catch((error) => {
+    } catch (error) {
       logger.error({ error }, 'Tool health check failed (scheduled)');
-    });
+    }
+
+    // Run credential checks after tool health check
+    logger.info('Credential check started (scheduled)');
+    try {
+      const credResult = await toolHealthServiceInstance!.runCredentialChecks();
+      logger.info(
+        { valid: credResult.valid, invalid: credResult.invalid, skipped: credResult.skipped },
+        'Credential check completed (scheduled)'
+      );
+    } catch (error) {
+      logger.error({ error }, 'Credential check failed (scheduled)');
+    }
   });
   logger.info('Tool health service initialized (6-hour cron scheduled)');
 

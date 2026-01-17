@@ -12,11 +12,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import * as dotenv from 'dotenv';
 import lodash from 'lodash';
 import { PythonRunnerService } from './pythonRunner.js';
 import { TelegramService } from './messaging/telegram.js';
 import { getPrismaClient } from './prisma.js';
 import { logger as baseLogger } from '../utils/logger.js';
+import {
+  credentialValidators,
+  checkEnvVarsPresent,
+  type CredentialCheckResult,
+  type CredentialValidator,
+} from './credentialValidators.js';
 
 const { get: lodashGet } = lodash;
 const logger = baseLogger.child({ module: 'tool-health-service' });
@@ -69,6 +76,13 @@ export interface HealthCheckResult {
 export interface ValidationResult {
   valid: boolean;
   error?: string;
+}
+
+export interface CredentialHealthCheckResult {
+  valid: number;
+  invalid: number;
+  skipped: number;
+  results: CredentialCheckResult[];
 }
 
 // =============================================================================
@@ -482,6 +496,246 @@ export class ToolHealthService {
       logger.info({ toolName: result.toolName, tenantId: result.tenantId }, 'Fix task queued');
     } catch (error) {
       logger.error({ error }, 'Failed to queue fix task');
+    }
+  }
+
+  // ===========================================================================
+  // Credential Validation
+  // ===========================================================================
+
+  /**
+   * Load environment variables from a tenant's .env file.
+   */
+  private loadTenantEnv(tenantId: string): Record<string, string> {
+    const envPath = path.join(this.projectRoot, 'tenants', tenantId, '.env');
+
+    if (!fs.existsSync(envPath)) {
+      return {};
+    }
+
+    try {
+      const envContent = fs.readFileSync(envPath, 'utf-8');
+      return dotenv.parse(envContent);
+    } catch (error) {
+      logger.warn({ tenantId, envPath, error }, 'Failed to parse tenant .env file');
+      return {};
+    }
+  }
+
+  /**
+   * Run credential validation for a single tenant and validator.
+   */
+  private async validateCredential(
+    tenantId: string,
+    validator: CredentialValidator,
+    env: Record<string, string>
+  ): Promise<CredentialCheckResult> {
+    // Check if required env vars are present
+    const missingVars = checkEnvVarsPresent(validator, env);
+    if (missingVars.length > 0) {
+      return {
+        service: validator.service,
+        tenantId,
+        valid: false,
+        missingVars,
+        error: `Missing environment variables: ${missingVars.join(', ')}`,
+      };
+    }
+
+    // Run the actual validation
+    try {
+      const result = await validator.validate(env);
+      return {
+        service: validator.service,
+        tenantId,
+        valid: result.valid,
+        error: result.error,
+      };
+    } catch (error) {
+      return {
+        service: validator.service,
+        tenantId,
+        valid: false,
+        error: `Validation threw exception: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  /**
+   * Run credential checks for one or all tenants.
+   * This validates credentials for services with skip_test tools (destructive tools).
+   */
+  async runCredentialChecks(tenantId?: string): Promise<CredentialHealthCheckResult> {
+    const results: CredentialCheckResult[] = [];
+    let valid = 0;
+    let invalid = 0;
+    let skipped = 0;
+
+    // Determine which tenants to check
+    const tenants = tenantId ? [tenantId] : await this.discoverTenants();
+
+    for (const tenant of tenants) {
+      logger.info({ tenantId: tenant }, 'Running credential checks for tenant');
+
+      // Load tenant's environment variables
+      const env = this.loadTenantEnv(tenant);
+
+      // Run each validator
+      for (const validator of credentialValidators) {
+        // Check if any required env vars exist at all
+        const hasAnyEnvVar = validator.envVars.some(v => env[v]);
+
+        if (!hasAnyEnvVar) {
+          // Service not configured for this tenant, skip
+          skipped++;
+          logger.debug(
+            { tenantId: tenant, service: validator.service },
+            'Skipping credential check - service not configured'
+          );
+          continue;
+        }
+
+        const result = await this.validateCredential(tenant, validator, env);
+        results.push(result);
+
+        if (result.valid) {
+          valid++;
+          logger.info(
+            { tenantId: tenant, service: validator.service },
+            'Credential check passed'
+          );
+        } else {
+          invalid++;
+          logger.error(
+            { tenantId: tenant, service: validator.service, error: result.error },
+            'Credential check failed'
+          );
+          // Alert and queue fix task
+          await this.alertCredentialFailure(result, validator);
+          await this.queueCredentialFixTask(result, validator);
+        }
+      }
+    }
+
+    logger.info({ valid, invalid, skipped }, 'Credential checks completed');
+    return { valid, invalid, skipped, results };
+  }
+
+  /**
+   * Send a Telegram alert for a failed credential check.
+   */
+  async alertCredentialFailure(
+    result: CredentialCheckResult,
+    validator: CredentialValidator
+  ): Promise<void> {
+    const chatId = process.env.ADMIN_TELEGRAM_CHAT_ID;
+
+    if (!chatId) {
+      logger.warn('ADMIN_TELEGRAM_CHAT_ID not configured, skipping credential alert');
+      return;
+    }
+
+    if (!this.telegramService) {
+      logger.warn('Telegram service not initialized, skipping credential alert');
+      return;
+    }
+
+    // Truncate error to 500 chars
+    const truncatedError = result.error
+      ? result.error.substring(0, 500) + (result.error.length > 500 ? '...' : '')
+      : 'Unknown error';
+
+    const message = [
+      '🔑 <b>Credential Health Alert</b>',
+      '',
+      `<b>Service:</b> ${result.service}`,
+      `<b>Tenant:</b> ${result.tenantId}`,
+      `<b>Error:</b> ${truncatedError}`,
+      '',
+      `<b>Affected tools:</b> ${validator.toolsAffected.slice(0, 5).join(', ')}${validator.toolsAffected.length > 5 ? '...' : ''}`,
+    ].join('\n');
+
+    try {
+      await this.telegramService.sendTextMessage(chatId, message);
+      logger.info({ service: result.service, tenantId: result.tenantId }, 'Credential alert sent');
+    } catch (error) {
+      logger.error({ error }, 'Failed to send credential alert');
+    }
+  }
+
+  /**
+   * Queue a fix task for a failed credential check.
+   */
+  async queueCredentialFixTask(
+    result: CredentialCheckResult,
+    validator: CredentialValidator
+  ): Promise<void> {
+    const prisma = getPrismaClient();
+
+    const fixInstructions = this.getFixInstructions(validator.service);
+
+    const fixPrompt = [
+      `Credentials for "${result.service}" in tenant "${result.tenantId}" are invalid.`,
+      '',
+      `Error: ${result.error || 'Unknown error'}`,
+      '',
+      `Affected tools: ${validator.toolsAffected.join(', ')}`,
+      '',
+      'Please fix by:',
+      ...fixInstructions,
+      '',
+      'After fixing, verify with: POST /admin/credentials/health-check',
+    ].join('\n');
+
+    try {
+      await prisma.async_jobs.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenant_id: result.tenantId,
+          sender_phone: 'system',
+          session_id: 'credential-check',
+          input_message: fixPrompt,
+          estimated_ms: 300000, // 5 minutes
+          dedup_hash: `fix-credential-${result.tenantId}-${result.service}-${Date.now()}`,
+          status: 'PENDING',
+        },
+      });
+
+      logger.info({ service: result.service, tenantId: result.tenantId }, 'Credential fix task queued');
+    } catch (error) {
+      logger.error({ error }, 'Failed to queue credential fix task');
+    }
+  }
+
+  /**
+   * Get fix instructions for a specific service.
+   */
+  private getFixInstructions(service: string): string[] {
+    switch (service) {
+      case 'google_oauth':
+        return [
+          '1. Run: python scripts/google-oauth.py',
+          '2. Update GOOGLE_DRIVE_REFRESH_TOKEN in tenant .env file',
+          '3. Verify the token by running a Drive API request',
+        ];
+      case 'sendgrid':
+        return [
+          '1. Check if SENDGRID_API_KEY is correct in tenant .env file',
+          '2. Verify API key permissions at https://app.sendgrid.com/settings/api_keys',
+          '3. Regenerate API key if necessary',
+        ];
+      case 'coinbase':
+        return [
+          '1. Check if COINBASE_API_KEY and COINBASE_API_SECRET are correct',
+          '2. Verify API key permissions at https://www.coinbase.com/settings/api',
+          '3. Regenerate API key if necessary (ensure "view" permission is enabled)',
+        ];
+      default:
+        return [
+          '1. Check the relevant API credentials in tenant .env file',
+          '2. Verify the credentials are valid with the service provider',
+          '3. Update credentials if necessary',
+        ];
     }
   }
 }
