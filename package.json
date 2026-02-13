@@ -19,7 +19,7 @@
     "ai-assistant",
     "realtor"
   ],
-  "author": "",
+  "author": "Anden Wickstrand",
   "license": "ISC",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
