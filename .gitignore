@@ -49,12 +49,10 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Tenant data (keep only templates and active tenants)
+# Tenant data (keep only templates)
 tenants/*
 !tenants/_template/
-!tenants/_template/CLAUDE.md
 !tenants/template/
-!tenants/anden/
 
 # Tenant secrets (never commit)
 tenants/*/.env
