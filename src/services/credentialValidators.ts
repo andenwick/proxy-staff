@@ -7,9 +7,6 @@
  */
 
 import * as crypto from 'crypto';
-import { logger as baseLogger } from '../utils/logger.js';
-
-const logger = baseLogger.child({ module: 'credential-validators' });
 
 // =============================================================================
 // Types
