@@ -27,6 +27,16 @@ jest.mock('../../utils/metrics.js', () => ({
   incrementCounter: jest.fn(),
 }));
 
+// Mock config
+jest.mock('../../config/index.js', () => ({
+  getConfig: jest.fn(() => ({
+    claudeModel: 'claude-sonnet-4-20250514',
+    databaseUrl: 'postgresql://mock',
+    credentialsEncryptionKey: 'mock-key',
+    adminApiKey: 'mock-admin-key',
+  })),
+}));
+
 // Create mock Prisma with mutable session data
 let mockSession: { id: string; reset_timestamp: Date | null } | null = null;
 
