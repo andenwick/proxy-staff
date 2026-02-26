@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { logger } from '../utils/logger.js';
 
 // Load .env file for local development
 dotenv.config();
@@ -84,7 +85,7 @@ export function loadConfig(): Config {
   // Warn about recommended but missing vars
   for (const envVar of recommendedEnvVars) {
     if (!process.env[envVar]) {
-      console.warn(`[CONFIG WARNING] ${envVar} not set - some features may not work`);
+      logger.warn({ envVar }, 'Recommended environment variable not set - some features may not work');
     }
   }
 

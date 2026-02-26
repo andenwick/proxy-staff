@@ -145,12 +145,13 @@ railway logs --lines 100 -s ProxyStaff
 
 ### Check Tenant Status
 ```bash
-node scripts/read-tenant.js <tenant-id>
+npx tsx scripts/list-tenants.ts
 ```
 
 ### View Recent Messages
-```bash
-node scripts/read-messages.js
+```sql
+-- Connect via: railway connect -s Postgres
+SELECT * FROM messages WHERE tenant_id = 'xxx' ORDER BY created_at DESC LIMIT 20;
 ```
 
 ---
