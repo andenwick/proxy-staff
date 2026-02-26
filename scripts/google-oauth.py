@@ -199,10 +199,14 @@ def main():
     print()
     print("=" * 60)
     print()
+    proxystaff_url = os.environ.get("PROXYSTAFF_URL", "https://proxystaff-production.up.railway.app")
+    admin_api_key = os.environ.get("ADMIN_API_KEY", "<your-admin-api-key>")
+
     print("To update production, run:")
+    print("(Set PROXYSTAFF_URL and ADMIN_API_KEY env vars, or replace placeholders)")
     print()
-    print(f'''curl -X POST "https://proxystaff-production.up.railway.app/admin/tenants/anden/credentials" \\
-  -H "Authorization: Bearer REDACTED_API_KEY" \\
+    print(f'''curl -X POST "{proxystaff_url}/admin/tenants/anden/credentials" \\
+  -H "Authorization: Bearer {admin_api_key}" \\
   -H "Content-Type: application/json" \\
   -d '{{"credentials": {{"GOOGLE_DRIVE_REFRESH_TOKEN": "{refresh_token}"}}}}'
 ''')

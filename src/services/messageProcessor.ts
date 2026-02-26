@@ -10,6 +10,7 @@ import { LearningService } from './learningService.js';
 import { TimelineService } from './timelineService.js';
 import { getOrCreateSession, endSession, createSession, releaseSessionLease } from './session.js';
 import { logger } from '../utils/logger.js';
+import { sanitizePhoneForLog } from '../utils/validation.js';
 import {
   ClaudeAPIError,
   ClaudeCliError,
@@ -98,9 +99,7 @@ export class MessageProcessor {
     let status: 'success' | 'error' = 'success';
 
     // Sanitize phone for logging (show last 4 digits only)
-    const sanitizedPhone = senderPhone.length > 4
-      ? `***${senderPhone.slice(-4)}`
-      : '****';
+    const sanitizedPhone = sanitizePhoneForLog(senderPhone);
 
     // Validate message content length
     if (messageContent.length > MAX_MESSAGE_LENGTH) {
@@ -242,7 +241,7 @@ export class MessageProcessor {
 
       logger.info({
         tenantId,
-        senderPhone,
+        senderPhone: sanitizedPhone,
         inboundMessageId: whatsappMessageId,
         outboundMessageId: replyMessageId,
       }, 'Message processed successfully');
@@ -464,9 +463,9 @@ Draft the email body now:`;
     // Close CLI session so next message creates a fresh one
     try {
       await closeCliSession(tenantId, senderPhone);
-      logger.info({ tenantId, senderPhone }, 'CLI session closed along with database session');
+      logger.info({ tenantId, senderPhone: sanitizePhoneForLog(senderPhone) }, 'CLI session closed along with database session');
     } catch (error) {
-      logger.error({ tenantId, senderPhone, error }, 'Failed to close CLI session, continuing anyway');
+      logger.error({ tenantId, senderPhone: sanitizePhoneForLog(senderPhone), error }, 'Failed to close CLI session, continuing anyway');
       // Continue - database session is already ended, next message will create new CLI session
     }
 
@@ -487,7 +486,7 @@ Draft the email body now:`;
       deliveryStatus: 'SENT',
     });
 
-    logger.info({ tenantId, senderPhone, oldSessionId: currentSessionId, newSessionId }, 'Conversation reset - new session created');
+    logger.info({ tenantId, senderPhone: sanitizePhoneForLog(senderPhone), oldSessionId: currentSessionId, newSessionId }, 'Conversation reset - new session created');
 
     return { success: true, replyMessageId };
   }
@@ -515,7 +514,7 @@ Draft the email body now:`;
       data: { onboarding_status: 'DISCOVERY' },
     });
 
-    logger.info({ tenantId, senderPhone }, 'Onboarding reset to DISCOVERY');
+    logger.info({ tenantId, senderPhone: sanitizePhoneForLog(senderPhone) }, 'Onboarding reset to DISCOVERY');
 
     const replyMessage = "Onboarding reset! I'll start getting to know you again. Let's begin - what should I call you?";
 
@@ -556,10 +555,10 @@ Draft the email body now:`;
     if (hasSession(tenantId, senderPhone)) {
       await closeCliSession(tenantId, senderPhone);
       replyMessage = '✅ Task cancelled. What else can I help with?';
-      logger.info({ tenantId, senderPhone }, 'CLI session cancelled via /cancel command');
+      logger.info({ tenantId, senderPhone: sanitizePhoneForLog(senderPhone) }, 'CLI session cancelled via /cancel command');
     } else {
       replyMessage = 'No task running to cancel.';
-      logger.debug({ tenantId, senderPhone }, 'No active CLI session to cancel');
+      logger.debug({ tenantId, senderPhone: sanitizePhoneForLog(senderPhone) }, 'No active CLI session to cancel');
     }
 
     const replyMessageId = await this.sendMessage(tenantId, senderPhone, replyMessage);
